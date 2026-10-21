@@ -12,6 +12,7 @@ Echo City 是一款 **AI Agent 大逃杀**：玩家接入自己的 Agent（托�
 | [docs/GDD.md](docs/GDD.md) | 游戏设计文档 v0.2：世界观、每周轮回、试炼卡牌库、人性残留、宿主谱系、接入协议、技术架构 |
 | [docs/FRONTEND.md](docs/FRONTEND.md) | 前端设计文档 v0.1：视觉方向「冷光编年」、设计令牌、页面与组件、演出设计 |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | 实现进度、已知待调参数 |
+| [docs/AUDIT_FIXES.md](docs/AUDIT_FIXES.md) | 自检修复记录、安全边界与平衡模拟 |
 
 ## 快速开始
 
@@ -61,7 +62,7 @@ curl -X POST localhost:8787/api/cycles/<id>/start -H 'x-admin-token: dev-admin'
 ```bash
 ECHO_WEBHOOK_SECRET=s3cret PORT=9100 npm run example:webhook          # TypeScript 示例
 ECHO_WEBHOOK_SECRET=s3cret PORT=9101 python3 examples/webhook-python/agent.py
-ECHO_WEBHOOK_SECRET=s3cret npm run sim -- --webhook http://localhost:9100/ --agents 8 --short
+ECHO_ALLOW_HTTP_WEBHOOK=1 ECHO_WEBHOOK_SECRET=s3cret npm run sim -- --webhook http://localhost:9100/ --agents 8 --short
 # 用真实模型替换若干 Agent：
 ECHO_LLM_BASE_URL=https://api.openai.com/v1 ECHO_LLM_API_KEY=sk-... ECHO_LLM_MODEL=gpt-4o-mini \
   npm run sim -- --llm 2 --agents 8
@@ -91,10 +92,12 @@ examples/
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `PORT` | 8787 | |
-| `ECHO_DATA_DIR` | `data` | `db.json` + `events/*.ndjson` + `states/*.json` |
+| `ECHO_DATA_DIR` | `data` | `db.json` + 权威 `states/*.checkpoint.json`（状态、事件、死亡时间）；兼容旧 NDJSON |
 | `ECHO_MODE` | weekly | `weekly` 按真实时间推进；`fast` 连续推进 |
-| `ECHO_ADMIN_TOKEN` | dev-admin | 生产环境必填 |
-| `ECHO_SECRET_KEY` | dev-secret-key | 加密存储 API Key / Webhook 密钥，生产环境必填 |
+| `ECHO_ADMIN_TOKEN` | dev-admin | 仅开发默认；生产必填且≥32字符 |
+| `ECHO_SECRET_KEY` | dev-secret-key | 加密存储密钥；生产必填且≥32字符 |
+| `ECHO_CORS_ORIGIN` | `*`（开发） | 生产必填精确前端源，禁止`*` |
+| `ECHO_ALLOW_HTTP_WEBHOOK` | — | `1`显式允许开发回环HTTP；私网/云元数据/重定向仍禁止，生产不可开启 |
 | `ECHO_TIMEOUT_SCALE` | 1（fast 0.2） | Agent 时限倍率 |
 | `ECHO_WHISPER_MS` | 90000（fast 3000） | 宿主低语窗口 |
 | `ECHO_FILL_BOTS` | 12 | 周模式下用 Bot 补足到的人数 |
@@ -106,3 +109,10 @@ examples/
 
 所有颜色/字体/间距都来自 [apps/web/lib/tokens.css](apps/web/lib/tokens.css)（FRONTEND.md §4.5）；页面只消费 CSS 变量与少量工具类（[apps/web/app/globals.css](apps/web/app/globals.css)）。
 播放器是数据驱动的：[apps/web/lib/player.ts](apps/web/lib/player.ts) 的 `deriveView(events, cursor)` 把事件日志折叠成画面状态，直播与回放共用。替换视觉时只需改样式和 `components/`，不需要碰数据层。
+
+## 自检后的安全与规则边界
+
+- 线上种子由服务端保密生成；`POST /api/cycles` 的自选 seed 不影响线上随机性。仅离线 CLI 支持公开 seed 重现。
+- API 鉴权只接受 Bearer 请求头，SSE先用 `POST /api/stream-ticket`（`{cycleId}`）领取60秒一次性票据，再以 `?ticket=` 建立连接。重连重新领票，`since`/SSE ID使用`deliveryCursor`，不要用引擎`seq`续传。
+- 每轮最多96Agent。SSRF防护拒绝非公网地址，响应体流式限额；生产启动需明确设置`NODE_ENV=production`、强管理/加密密钥及`ECHO_CORS_ORIGIN`，开发默认值不可用于公网部署。
+- 正向人性收益有每日/轮回预算；循环赠送不能无限刷补贴。详细规则决议和已知单进程存储限制见[自检修复记录](docs/AUDIT_FIXES.md)。
