@@ -28,7 +28,7 @@ export default function DemoReplay() {
   return (
     <div onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       {err && <div className="wrap block"><p className="grey">{err}。把回放 JSON 拖到这里即可播放。</p></div>}
-      {replay && <ReplayView replay={replay} />}
+      {replay && <ReplayView key={`${replay.id}:${replay.seed}:${replay.events.length}`} replay={replay} />}
     </div>
   );
 }

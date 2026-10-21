@@ -35,7 +35,7 @@ export default function Play() {
   useEffect(() => {
     const t = getToken();
     setTok(t);
-    if (t) api("/api/me").then((m) => { setMe(m); const last = m.lineages[m.lineages.length - 1]; if (last) { setLineageId(last.id); setStep(2); } }).catch(() => {});
+    if (t) api("/api/me").then((m) => { setMe(m); const last = m.lineages[m.lineages.length - 1]; if (last) { setLineageId(last.id); setStep(1); } }).catch(() => {});
     api("/api/cycles/current").then(setCycle).catch(() => {});
   }, []);
 
@@ -48,7 +48,10 @@ export default function Play() {
     } catch (e: any) { setErr(e.message); }
   };
 
+  const accessReady = mode === "bot" || (mode === "hosted" ? !!(hosted.baseUrl.trim() && hosted.model.trim() && hosted.apiKey.trim()) : /^https:\/\//.test(webhook.url.trim()));
+
   const register = async () => {
+    if (!accessReady) { setErr("请先完成接入设置。"); setStep(1); return; }
     setErr("");
     try {
       const body: any = { name, mode, strategy, cycleId: cycle?.status === "registering" ? cycle.id : undefined };
@@ -83,7 +86,7 @@ export default function Play() {
   }
 
   return (
-    <div className="wrap" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 40, paddingTop: 48, paddingBottom: 48 }}>
+    <div className="wrap play-layout">
       <div>
         <div className="row mono" style={{ fontSize: 12, marginBottom: 24 }}>
           {STEPS.map((s, i) => <span key={s} style={{ color: i === step ? "var(--paper)" : "var(--grey-dark)" }}>{String(i + 1).padStart(2, "0")} {s}</span>)}
@@ -141,7 +144,7 @@ export default function Play() {
                 </select>
               </div>
             )}
-            <div className="row"><button className="btn" onClick={() => setStep(0)}>上一步</button><button className="btn primary" onClick={() => setStep(2)}>下一步</button></div>
+            <div className="row"><button className="btn" onClick={() => setStep(0)}>上一步</button><button className="btn primary" disabled={!accessReady} onClick={() => setStep(2)}>下一步</button></div>
           </div>
         )}
 

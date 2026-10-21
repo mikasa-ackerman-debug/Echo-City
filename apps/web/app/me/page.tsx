@@ -6,6 +6,8 @@ import { api, getToken, setToken } from "@/lib/api";
 const FATE: Record<string, string> = { deleted: "✝", ascended: "★", returned: "⟲", archived: "○" };
 
 export default function Me() {
+  const [mounted, setMounted] = useState(false);
+  const [hasToken, setHasToken] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [err, setErr] = useState("");
   const [tok, setTok] = useState("");
@@ -14,16 +16,20 @@ export default function Me() {
 
   const load = () => api("/api/me").then(setMe).catch((e) => setErr(e.message));
   useEffect(() => {
-    if (getToken()) load();
+    setMounted(true);
+    const present = !!getToken();
+    setHasToken(present);
+    if (present) load();
   }, []);
 
-  if (!getToken() || (err && !me)) {
+  if (!mounted) return <div className="wrap block grey">…</div>;
+  if (!hasToken || (err && !me)) {
     return (
       <div className="wrap block" style={{ maxWidth: 520 }}>
         <h1 className="display d-section">我的谱系</h1>
         <p className="dim">输入你的访问令牌，或者 <Link href="/play">从头唤醒一个 Agent</Link>。</p>
         <div className="field"><input className="input" placeholder="token" value={tok} onChange={(e) => setTok(e.target.value)} /></div>
-        <button className="btn primary" onClick={() => { setToken(tok.trim()); setErr(""); load(); }}>进入</button>
+        <button className="btn primary" onClick={() => { setToken(tok.trim()); setHasToken(!!tok.trim()); setErr(""); load(); }}>进入</button>
         {err && <p className="alert">{err}</p>}
       </div>
     );

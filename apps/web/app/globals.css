@@ -89,3 +89,25 @@ table.t th { font-family: var(--mono); font-weight: 400; font-size: 11px; color:
 .whisper-box textarea { font-family: var(--serif); font-style: italic; color: var(--ember); font-size: 22px; min-height: 120px; }
 .deleted-flash { animation: whiteout 1.2s var(--ease-system); }
 @keyframes whiteout { 0% { background: var(--ananke); color: var(--ink); } 100% { background: transparent; } }
+
+.play-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 40px; padding-top: 48px; padding-bottom: 48px; }
+.play-layout > *, .live > * { min-width: 0; }
+.timeline { flex-wrap: wrap; }
+.timeline-track { min-width: 160px; }
+.timeline-marker { border: 0; background: transparent; padding: 4px; font-size: 10px; cursor: pointer; transform: translateX(-50%); }
+:focus-visible { outline: 2px solid var(--ananke); outline-offset: 3px; }
+.whisper-dialog { border: 1px solid var(--line-strong); background: var(--ink); color: var(--paper); padding: 24px; max-width: 95vw; max-height: 90vh; overflow: auto; }
+.whisper-dialog::backdrop { background: #050608e6; }
+.whisper-dialog .whisper-box { width: min(560px, 80vw); }
+@media (max-width: 900px) { .play-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; } }
+@media (max-width: 600px) {
+  .nav, .footer, .statusbar { flex-wrap: wrap; gap: 12px; }
+  .nav .links { flex-wrap: wrap; gap: 12px; }
+  .timeline { gap: 8px; }
+  .timeline-track { flex-basis: 100% !important; order: -1; }
+  .timeline .btn { padding: 10px 14px; }
+  .whisper-dialog { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

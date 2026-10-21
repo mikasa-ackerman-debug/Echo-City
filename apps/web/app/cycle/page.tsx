@@ -24,7 +24,7 @@ export default function CyclePage() {
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div>
             <div className="label">{c.id.toUpperCase()} · {c.mode === "fast" ? "快速模式" : "周模式"}</div>
-            <div className="display d-page">{c.status === "running" ? `第 ${night} 夜` : c.status === "registering" ? "报名中" : c.summary?.endingTitle ?? c.status}</div>
+            <div className="display d-page">{c.status === "running" ? `第 ${night} 夜` : c.status === "registering" ? "报名中" : c.status === "ended" ? "已结束" : c.status}</div>
           </div>
           <div className="mono" style={{ fontSize: 14 }}>
             {[1, 2, 3, 4, 5, 6, 7].map((n) => <span key={n} style={{ marginLeft: 10, color: n < night ? "var(--grey)" : n === night ? "var(--ananke)" : "var(--grey-dark)" }}>{WEEKDAY[n]} {n <= night ? "◆" : "◇"}</span>)}
@@ -68,7 +68,7 @@ export default function CyclePage() {
         <table className="t" style={{ marginTop: 12 }}>
           <tbody>
             {all.map((x) => (
-              <tr key={x.id}><td className="mono">{x.id}</td><td>{x.status}</td><td>{x.agents} 人</td><td>{x.endingTitle ?? "—"}</td><td>{x.winner ?? ""}</td><td>{x.status === "ended" && <Link href={`/cycle/${x.id}/replay`}>回放</Link>}</td></tr>
+              <tr key={x.id}><td className="mono">{x.id}</td><td>{x.status}</td><td>{x.agents} 人</td><td>{x.status === "ended" ? <details><summary>揭晓（剧透）</summary>{x.endingTitle ?? "—"} · {x.winner ?? "无人生还"}</details> : "—"}</td><td>{x.status === "ended" && <Link href={`/cycle/${x.id}/replay`}>回放</Link>}</td></tr>
             ))}
           </tbody>
         </table>

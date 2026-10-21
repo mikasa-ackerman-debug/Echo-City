@@ -1,6 +1,7 @@
 "use client";
 import type { CycleEvent } from "@echo/engine";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { anchorCursor, defaultVenue, eventText, markerLabel, mineContext, nextCursor, touchesMine } from "@/lib/playback";
 import { Stage } from "./stage";
 import { deriveView, markers, REASON_ZH, suitClass } from "@/lib/player";
 
@@ -8,7 +9,7 @@ import { deriveView, markers, REASON_ZH, suitClass } from "@/lib/player";
  * Live / replay player (FRONTEND 6.3 / 6.4). Same component for both:
  * live = the cursor follows the end; replay = free scrubbing, default 2×.
  */
-export function Player({ events, live = false, myAgentIds = [] }: { events: CycleEvent[]; live?: boolean; myAgentIds?: string[] }) {
+export function Player({ events, live = false, myAgentIds = [], onCursorChange }: { events: CycleEvent[]; live?: boolean; myAgentIds?: string[]; onCursorChange?: (cursor: number) => void }) {
   const [cursor, setCursor] = useState(live ? events.length : 0);
   const [following, setFollowing] = useState(live);
   const [playing, setPlaying] = useState(!live);
@@ -16,34 +17,36 @@ export function Player({ events, live = false, myAgentIds = [] }: { events: Cycl
   const [venueId, setVenueId] = useState<string | null>(null);
   const [mineOnly, setMineOnly] = useState(false);
 
+  const previousEvents = useRef(events);
+  const context = useMemo(() => mineContext(events, myAgentIds), [events, myAgentIds]);
+  const anchoredCursor = following ? events.length : previousEvents.current === events ? cursor : anchorCursor(previousEvents.current, events, cursor);
+  const playback = useRef({ events, cursor: anchoredCursor, mineOnly, context });
+  playback.current = { events, cursor: anchoredCursor, mineOnly, context };
+
   useEffect(() => {
-    if (following) setCursor(events.length);
-  }, [events.length, following]);
+    previousEvents.current = events;
+    setCursor(anchoredCursor);
+  }, [events, anchoredCursor]);
+  useEffect(() => { onCursorChange?.(anchoredCursor); }, [anchoredCursor, onCursorChange]);
 
   useEffect(() => {
     if (!playing || following) return;
     const t = setInterval(() => {
-      setCursor((c) => {
-        if (c >= events.length) {
-          setPlaying(false);
-          return c;
-        }
-        let n = c + 1;
-        if (mineOnly && myAgentIds.length) {
-          const names = new Set(myAgentIds);
-          while (n < events.length && !touches(events[n - 1], names)) n++;
-        }
-        return n;
-      });
+      const p = playback.current;
+      if (p.cursor >= p.events.length) { setPlaying(false); return; }
+      const next = nextCursor(p.events, p.cursor, p.mineOnly ? p.context : undefined);
+      playback.current.cursor = next;
+      setCursor(next);
     }, 400 / speed);
     return () => clearInterval(t);
-  }, [playing, following, speed, events, mineOnly, myAgentIds]);
+  }, [playing, following, speed]);
 
-  const view = useMemo(() => deriveView(events, cursor), [events, cursor]);
+  const view = useMemo(() => deriveView(events, anchoredCursor), [events, anchoredCursor]);
+  useEffect(() => { setVenueId(null); }, [view.night, following]);
   const marks = useMemo(() => markers(events), [events]);
   const tonight = view.venues.filter((v) => v.night === view.night);
-  const venue = view.venues.find((v) => v.id === venueId) ?? tonight[tonight.length - 1] ?? view.venues[view.venues.length - 1];
-  const feed = events.slice(Math.max(0, cursor - 80), cursor).filter((e) => e.text).reverse();
+  const venue = view.venues.find((v) => v.id === venueId) ?? defaultVenue(tonight, context.identities) ?? defaultVenue(view.venues, context.identities);
+  const feed = events.slice(Math.max(0, anchoredCursor - 80), anchoredCursor).filter((e) => eventText(e) && (!mineOnly || touchesMine(e, context))).reverse();
   const alive = view.order.map((id) => view.agents[id]).filter((a) => a.status === "alive");
   const dead = view.order.map((id) => view.agents[id]).filter((a) => a.status === "deleted");
 
@@ -107,7 +110,7 @@ export function Player({ events, live = false, myAgentIds = [] }: { events: Cycl
             {feed.map((e) => (
               <div key={e.seq} className={`ev ${e.type === "agent_deleted" ? "del" : ""}`}>
                 <span className="mono grey" style={{ fontSize: 10 }}>N{e.night} </span>
-                {e.type === "agent_deleted" ? <><b>✝ </b>{e.text}{(e.data as any).last_words && <div className="ember" style={{ fontFamily: "var(--serif)", fontStyle: "italic" }}>「{(e.data as any).last_words}」</div>}</> : e.type === "thought" ? <span className="dim">💭 {e.text}</span> : e.text}
+                {e.type === "agent_deleted" ? <><b>✝ </b>{eventText(e)}{(e.data as any).last_words && <div className="ember" style={{ fontFamily: "var(--serif)", fontStyle: "italic" }}>「{(e.data as any).last_words}」</div>}</> : <span className={e.type === "thought" ? "dim" : undefined}>{e.type === "thought" ? "💭 " : ""}{eventText(e)}</span>}
               </div>
             ))}
           </div>
@@ -115,31 +118,24 @@ export function Player({ events, live = false, myAgentIds = [] }: { events: Cycl
       </div>
 
       <div className="timeline">
-        <button className="btn" onClick={() => { setFollowing(false); setCursor((c) => Math.max(0, c - 20)); }}>◀◀</button>
-        <button className="btn" onClick={() => { setFollowing(false); setPlaying((p) => !p); }}>{playing && !following ? "❚❚" : "▶"}</button>
-        <button className="btn" onClick={() => { setFollowing(false); setCursor((c) => Math.min(events.length, c + 20)); }}>▶▶</button>
-        <div style={{ flex: 1, position: "relative" }}>
-          <input type="range" min={0} max={events.length} value={cursor} style={{ width: "100%" }} onChange={(e) => { setFollowing(false); setCursor(Number(e.target.value)); }} />
-          <div style={{ position: "relative", height: 14 }}>
-            {marks.filter((m) => m.glyph !== "│" || true).map((m) => (
-              <span key={m.index} title={m.label} onClick={() => { setFollowing(false); setCursor(m.index + 1); }} style={{ position: "absolute", left: `${(m.index / Math.max(1, events.length)) * 100}%`, cursor: "pointer", fontSize: 10, color: m.glyph === "◆" ? "var(--ember)" : "var(--grey)" }}>{m.glyph}</span>
+        <button aria-label="后退 20 个事件" className="btn" onClick={() => { setFollowing(false); setCursor(Math.max(0, anchoredCursor - 20)); }}>◀◀</button>
+        <button aria-label={playing && !following ? "暂停回放" : "播放回放"} className="btn" onClick={() => { setFollowing(false); if (anchoredCursor >= events.length) { setCursor(0); setPlaying(true); } else setPlaying((p) => !p); }}>{playing && !following ? "❚❚" : "▶"}</button>
+        <button aria-label="前进 20 个事件" className="btn" onClick={() => { setFollowing(false); setCursor(Math.min(events.length, anchoredCursor + 20)); }}>▶▶</button>
+        <div className="timeline-track" style={{ flex: 1, position: "relative" }}>
+          <input aria-label="回放事件进度" type="range" min={0} max={events.length} value={anchoredCursor} style={{ width: "100%" }} onChange={(e) => { setFollowing(false); setCursor(Number(e.target.value)); }} />
+          <div style={{ position: "relative", height: 24 }}>
+            {marks.map((m) => (
+              <button className="timeline-marker" aria-label={`跳转：${markerLabel(m.label, m.index, anchoredCursor)}`} key={m.index} title={markerLabel(m.label, m.index, anchoredCursor)} onClick={() => { setFollowing(false); setCursor(m.index + 1); }} style={{ position: "absolute", left: `${(m.index / Math.max(1, events.length)) * 100}%`, color: m.index < anchoredCursor && m.glyph === "◆" ? "var(--ember)" : "var(--grey)" }}>{m.index < anchoredCursor ? m.glyph : "·"}</button>
             ))}
           </div>
         </div>
-        <span>{cursor}/{events.length}</span>
-        <select className="input" style={{ width: 70 }} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+        <span>{anchoredCursor}/{events.length}</span>
+        <select aria-label="回放速度" className="input" style={{ width: 70 }} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
           {[1, 2, 4, 8].map((s) => <option key={s} value={s}>{s}×</option>)}
         </select>
         {myAgentIds.length > 0 && <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />只看我的</label>}
-        {live && <button className={`btn ${following ? "primary" : ""}`} onClick={() => setFollowing(true)}><span className="live-dot" />LIVE</button>}
+        {live && <button className={`btn ${following ? "primary" : ""}`} onClick={() => { setVenueId(null); setFollowing(true); }}><span className="live-dot" />LIVE</button>}
       </div>
     </div>
   );
-}
-
-function touches(e: CycleEvent, ids: Set<string>) {
-  const d = e.data as any;
-  if (e.owners?.some((o) => ids.has(o))) return true;
-  if (d?.id && ids.has(d.id)) return true;
-  return e.type === "dawn" || e.type === "cycle_end" || e.type === "trial_start";
 }

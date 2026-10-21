@@ -14,5 +14,5 @@ export default function ReplayPage({ params }: { params: Promise<{ id: string }>
   }, [id]);
   if (err) return <div className="wrap block"><p className="grey">{err}</p></div>;
   if (!replay) return <div className="wrap block"><p className="grey">…</p></div>;
-  return <ReplayView replay={replay} myAgentIds={mine} />;
+  return <ReplayView key={replay.id} replay={replay} myAgentIds={mine} />;
 }

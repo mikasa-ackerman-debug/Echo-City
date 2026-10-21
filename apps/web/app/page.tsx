@@ -48,7 +48,7 @@ export default function Home() {
             <div><div className="label">CYCLE</div><div className="display d-section">{cur.id.replace("cycle-", "")}</div></div>
             <div><div className="label">状态</div><div className="display d-section">{cur.status === "running" ? `第 ${cur.live?.night ?? 1} 夜` : cur.status === "registering" ? "报名中" : "已结束"}</div></div>
             <div><div className="label">存活</div><div className="display d-section">{cur.live ? `${cur.live.alive} / ${cur.live.total}` : cur.roster.length}</div></div>
-            <div><div className="label">结局</div><div className="display d-section">{cur.summary?.endingTitle ?? "—"}</div></div>
+            <div><div className="label">结局</div>{cur.summary?.ended ? <details><summary>揭晓结局（剧透）</summary><div className="display d-section">{cur.summary.endingTitle}</div></details> : <div className="display d-section">—</div>}</div>
           </div>
         ) : <p className="grey">城市尚未接通。启动 API：<code className="mono">npm run api</code></p>}
         <div className="row" style={{ marginTop: 20 }}>
@@ -102,9 +102,11 @@ export default function Home() {
 
       {lastWinner && (
         <section className="block">
-          <div className="label">上一位并入者</div>
-          <div className="display d-hero">{lastWinner.winner}</div>
-          <p className="dim">{lastWinner.id} · {lastWinner.endingTitle} · <Link href={`/cycle/${lastWinner.id}/replay`}>回放</Link></p>
+          <details>
+            <summary className="label">上一位并入者（点击揭晓 · 剧透）</summary>
+            <div className="display d-hero">{lastWinner.winner}</div>
+            <p className="dim">{lastWinner.id} · {lastWinner.endingTitle} · <Link href={`/cycle/${lastWinner.id}/replay`}>回放</Link></p>
+          </details>
         </section>
       )}
     </div>

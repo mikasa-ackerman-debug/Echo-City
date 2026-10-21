@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Player } from "@/components/player";
 import { WhisperOverlay } from "@/components/whisper";
 import { api, subscribe } from "@/lib/api";
+import { mergeEvents } from "@/lib/playback";
 
 export default function LivePage() {
   const [cycle, setCycle] = useState<any>(null);
@@ -18,8 +19,19 @@ export default function LivePage() {
 
   useEffect(() => {
     if (!cycle) return;
-    // Late-visibility events can arrive out of seq order; keep the log sorted.
-    return subscribe(cycle.id, (e) => setEvents((prev) => [...prev, e].sort((a, b) => a.seq - b.seq)), setConn);
+    setEvents([]);
+    let pending: CycleEvent[] = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = subscribe(cycle.id, (e) => {
+      pending.push(e);
+      if (!timer) timer = setTimeout(() => {
+        const batch = pending;
+        pending = [];
+        timer = undefined;
+        setEvents((prev) => mergeEvents(prev, batch));
+      }, 50);
+    }, setConn);
+    return () => { stop(); if (timer) clearTimeout(timer); };
   }, [cycle?.id]);
 
   if (!cycle) return <div className="wrap block"><p className="grey">{conn === "error" ? "无法连接城市（API 未启动？）" : "…"}</p></div>;
