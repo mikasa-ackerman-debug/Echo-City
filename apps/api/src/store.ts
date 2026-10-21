@@ -117,8 +117,11 @@ export class Store {
   db: DbShape;
   private flushTimer: NodeJS.Timeout | null = null;
   private memEvents = new Map<string, CycleEvent[]>();
+  private cacheOrder = new Map<string, true>();
+  private eventPins = new Map<string, number>();
 
-  constructor(readonly dir: string | null) {
+  constructor(readonly dir: string | null, readonly historyCacheLimit = 16) {
+    if (!Number.isSafeInteger(historyCacheLimit) || historyCacheLimit < 0) throw new Error("Invalid history cache limit");
     this.db = { version: 1, users: [], lineages: [], agents: [], cycles: [], tombstones: [] };
     if (dir) {
       mkdirSync(join(dir, "events"), { recursive: true });
@@ -138,53 +141,95 @@ export class Store {
   flush() {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
+    this.trimCache();
     if (!this.dir) return;
     const f = join(this.dir, "db.json");
     atomicWrite(f, JSON.stringify(this.db, null, 1));
   }
 
+  /** Subscription pins are reference-counted; running cycles are pinned by status. */
+  pinEvents(cycleId: string): () => void {
+    this.eventPins.set(cycleId, (this.eventPins.get(cycleId) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = (this.eventPins.get(cycleId) ?? 1) - 1;
+      if (count) this.eventPins.set(cycleId, count);
+      else this.eventPins.delete(cycleId);
+      this.trimCache();
+    };
+  }
+
+  private touch(cycleId: string) {
+    this.cacheOrder.delete(cycleId);
+    this.cacheOrder.set(cycleId, true);
+    this.trimCache();
+  }
+
+  private trimCache() {
+    // Without a disk backing these maps are the database, not disposable caches.
+    if (!this.dir) return;
+    const historical = [...this.cacheOrder.keys()].filter((id) => this.cycle(id)?.status !== "running" && !this.eventPins.has(id));
+    for (const id of historical.slice(0, Math.max(0, historical.length - this.historyCacheLimit))) {
+      this.cacheOrder.delete(id);
+      this.memEvents.delete(id);
+      this.memStates.delete(id);
+      this.deathTimes.delete(id);
+    }
+  }
+
   /* events */
   appendEvents(cycleId: string, events: CycleEvent[]) {
     if (!events.length) return;
-    const cached = this.memEvents.get(cycleId);
-    if (cached) cached.push(...events);
-    else if (!this.dir) this.memEvents.set(cycleId, [...events]);
+    // Write first: if this history is evicted, its next read must include the tail.
     if (this.dir) appendFileSync(join(this.dir, "events", `${safe(cycleId)}.ndjson`), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const cached = this.memEvents.get(cycleId);
+    if (cached) this.memEvents.set(cycleId, mergeEvents(cached, events));
+    else if (!this.dir) this.memEvents.set(cycleId, mergeEvents([], events));
+    if (this.memEvents.has(cycleId)) this.touch(cycleId);
   }
 
   events(cycleId: string): CycleEvent[] {
     const cached = this.memEvents.get(cycleId);
-    if (cached) return cached;
+    if (cached) { this.touch(cycleId); return cached; }
     if (!this.dir) return [];
     const checkpoint = join(this.dir, "states", `${safe(cycleId)}.checkpoint.json`);
-    if (existsSync(checkpoint)) {
-      const list = JSON.parse(readFileSync(checkpoint, "utf8")).events as CycleEvent[];
-      this.memEvents.set(cycleId, list); return list;
-    }
+    const saved = existsSync(checkpoint) ? JSON.parse(readFileSync(checkpoint, "utf8")) : null;
     const f = join(this.dir, "events", `${safe(cycleId)}.ndjson`);
-    const list = existsSync(f)
-      ? readFileSync(f, "utf8")
-          .split("\n")
-          .filter(Boolean)
-          .map((l) => JSON.parse(l) as CycleEvent)
+    const tail: CycleEvent[] = existsSync(f)
+      ? readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as CycleEvent)
       : [];
+    // A checkpoint is authoritative for its entire prefix, including truncations.
+    const list = saved ? mergeEvents(saved.events, tail.filter((e) => e.seq > saved.state.seq)) : mergeEvents([], tail);
+    if (saved) this.deathTimes.set(cycleId, saved.deathTimes ?? {});
     this.memEvents.set(cycleId, list);
+    this.touch(cycleId);
     return list;
   }
 
   /** Truncate events after a seq (used when resuming from an older snapshot). */
   truncateEvents(cycleId: string, maxSeq: number) {
     const list = this.events(cycleId).filter((e) => e.seq <= maxSeq);
+    if (this.dir) {
+      const checkpoint = join(this.dir, "states", `${safe(cycleId)}.checkpoint.json`);
+      if (existsSync(checkpoint)) {
+        const saved = JSON.parse(readFileSync(checkpoint, "utf8"));
+        atomicWrite(checkpoint, JSON.stringify({ ...saved, events: list }));
+      }
+      writeFileSync(join(this.dir, "events", `${safe(cycleId)}.ndjson`), list.map((e) => JSON.stringify(e)).join("\n") + (list.length ? "\n" : ""));
+    }
     this.memEvents.set(cycleId, list);
-    if (this.dir) writeFileSync(join(this.dir, "events", `${safe(cycleId)}.ndjson`), list.map((e) => JSON.stringify(e)).join("\n") + (list.length ? "\n" : ""));
+    this.touch(cycleId);
   }
 
   /** Atomic state + full event-prefix checkpoint; authoritative on recovery.
    * Existing NDJSON/state files remain supported for legacy checkpoints. */
   private deathTimes = new Map<string, Record<string, string>>();
   checkpoint(state: CycleState, events: CycleEvent[], now = new Date().toISOString()) {
-    const list = [...this.events(state.id), ...events];
-    const deathTimes = { ...this.deathTimes.get(state.id) };
+    const list = mergeEvents(this.events(state.id), events).filter((e) => e.seq <= state.seq);
+    const previous = this.dir ? join(this.dir, "states", `${safe(state.id)}.checkpoint.json`) : null;
+    const deathTimes: Record<string, string> = { ...(this.deathTimes.get(state.id) ?? (previous && existsSync(previous) ? JSON.parse(readFileSync(previous, "utf8")).deathTimes : {})) };
     for (const id of state.order) if (state.agents[id].deletion && !deathTimes[id]) deathTimes[id] = now;
     if (this.dir) {
       const f = join(this.dir, "states", `${safe(state.id)}.checkpoint.json`);
@@ -192,10 +237,24 @@ export class Store {
     }
     this.deathTimes.set(state.id, deathTimes);
     this.memEvents.set(state.id, list);
-    this.memStates.set(state.id, structuredClone(state));
+    if (!this.dir) this.memStates.set(state.id, structuredClone(state));
+    this.touch(state.id);
   }
 
-  deathTime(cycleId: string, agentId: string): string | undefined { return this.deathTimes.get(cycleId)?.[agentId]; }
+  deathTime(cycleId: string, agentId: string): string | undefined {
+    if (!this.deathTimes.has(cycleId) && this.dir) {
+      const checkpoint = join(this.dir, "states", `${safe(cycleId)}.checkpoint.json`);
+      if (!existsSync(checkpoint)) return undefined;
+      const saved = JSON.parse(readFileSync(checkpoint, "utf8"));
+      const time = saved.deathTimes?.[agentId] as string | undefined;
+      this.deathTimes.set(cycleId, saved.deathTimes ?? {});
+      this.touch(cycleId);
+      return time;
+    }
+    const time = this.deathTimes.get(cycleId)?.[agentId];
+    if (this.deathTimes.has(cycleId)) this.touch(cycleId);
+    return time;
+  }
 
   /* engine state snapshots */
   private memStates = new Map<string, CycleState>();
@@ -215,6 +274,7 @@ export class Store {
     if (existsSync(checkpoint)) {
       const saved = JSON.parse(readFileSync(checkpoint, "utf8"));
       this.deathTimes.set(cycleId, saved.deathTimes ?? {});
+      this.touch(cycleId);
       return saved.state as CycleState;
     }
     const f = join(this.dir, "states", `${safe(cycleId)}.json`);
@@ -234,6 +294,14 @@ export class Store {
   agent(id: string) {
     return this.db.agents.find((a) => a.id === id);
   }
+}
+
+function mergeEvents(prefix: CycleEvent[], added: CycleEvent[]): CycleEvent[] {
+  const bySeq = new Map<number, CycleEvent>();
+  for (const event of prefix) bySeq.set(event.seq, event);
+  // Existing checkpoint events win if a producer retries a batch.
+  for (const event of added) if (!bySeq.has(event.seq)) bySeq.set(event.seq, event);
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
 }
 
 function safe(id: string) {

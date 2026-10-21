@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject, normalizeResponse, sanitizeText, validateAction, type ActionSpec } from "../src";
-import { signPayload, verifySignature } from "../src/signing";
+import { signPayload, verifySignature, WebhookReplayGuard } from "../src/signing";
 
 const legal: ActionSpec[] = [
   { type: "rest" },
@@ -44,6 +44,18 @@ describe("text helpers", () => {
 });
 
 describe("signing", () => {
+  it("rejects signed request replays and bounds guard memory", () => {
+    const guard = new WebhookReplayGuard(1);
+    const now = 1000000;
+    const body = JSON.stringify({ request_id: "one", deadline_ms: 20000 });
+    expect(guard.accept(body, "secret", signPayload(body, "secret", now), now, now)).toBe(true);
+    expect(guard.accept(body, "secret", signPayload(body, "secret", now), now, now)).toBe(false);
+    const next = JSON.stringify({ request_id: "two" });
+    expect(guard.accept(next, "secret", signPayload(next, "secret", now), now, now)).toBe(false);
+    const later = now + 300001;
+    expect(guard.accept(next, "secret", signPayload(next, "secret", later), later, later)).toBe(true);
+    expect(new WebhookReplayGuard().accept('{"request_id":"tampered"}', "secret", signPayload(body, "secret", now), now, now)).toBe(false);
+  });
   it("round-trips and rejects tampering / stale timestamps", () => {
     const now = Date.now();
     const sig = signPayload('{"a":1}', "s3cret", now);

@@ -13,6 +13,7 @@ import json
 import os
 import random
 import time
+from threading import Lock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SECRET = os.environ.get("ECHO_WEBHOOK_SECRET", "dev-webhook-secret-change-me").encode()
@@ -20,14 +21,30 @@ PORT = int(os.environ.get("PORT", "9101"))
 PREF = ["rest", "yield", "stay", "cooperate", "invest", "declare", "answer", "choose", "guess", "move", "reply"]
 
 
+SEEN = {}
+SEEN_LOCK = Lock()
+
+
 def verify(body: bytes, sig: str, ts: str) -> bool:
+    now = time.time() * 1000
     try:
-        if abs(time.time() * 1000 - int(ts)) > 5 * 60 * 1000:
+        if abs(now - int(ts)) > 5 * 60 * 1000:
             return False
-    except (TypeError, ValueError):
+        request_id = json.loads(body).get("request_id")
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 512:
+            return False
+    except (TypeError, ValueError, AttributeError):
         return False
     mac = hmac.new(SECRET, f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(f"sha256={mac}", sig or "")
+    if not hmac.compare_digest(f"sha256={mac}", sig or ""):
+        return False
+    with SEEN_LOCK:
+        for key in [key for key, expiry in SEEN.items() if expiry < now]:
+            del SEEN[key]
+        if request_id in SEEN or len(SEEN) >= 4096:
+            return False
+        SEEN[request_id] = int(ts) + 5 * 60 * 1000
+    return True
 
 
 def sample(p):

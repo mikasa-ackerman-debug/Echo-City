@@ -18,6 +18,24 @@ export function signPayload(body: string, secret: string, timestamp: number): st
   return `sha256=${mac}`;
 }
 
+/** Headers are hints only: authenticate request_id/deadline_ms from the signed JSON body. */
+export class WebhookReplayGuard {
+  private seen = new Map<string, number>();
+  constructor(private readonly capacity = 4096) {}
+
+  accept(body: string, secret: string, signature: string | undefined | null, timestamp: string | number | undefined | null, now = Date.now()): boolean {
+    if (!verifySignature(body, secret, signature, timestamp, now)) return false;
+    let requestId: unknown;
+    try { requestId = JSON.parse(body).request_id; } catch { return false; }
+    if (typeof requestId !== "string" || !requestId || requestId.length > 512) return false;
+    for (const [key, expiry] of this.seen) if (expiry < now) this.seen.delete(key);
+    if (this.seen.has(requestId) || this.seen.size >= this.capacity) return false;
+    // Covers future-skewed signed timestamps as well as the normal replay window.
+    this.seen.set(requestId, Number(timestamp) + SIGNATURE_TOLERANCE_MS);
+    return true;
+  }
+}
+
 export function verifySignature(
   body: string,
   secret: string,

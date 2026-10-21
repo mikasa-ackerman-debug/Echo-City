@@ -32,6 +32,7 @@ interface Subscriber {
   viewer: string[];
   cursor: number;
   fn: Listener;
+  release: () => void;
 }
 
 interface WhisperWindow {
@@ -461,13 +462,23 @@ export class CycleManager {
   }
 
   subscribe(cycleId: string, user: UserRec | undefined, fn: Listener, since = 0): () => void {
-    const sub: Subscriber = { viewer: this.viewerAgents(cycleId, user), cursor: since, fn };
+    const sub: Subscriber = { viewer: this.viewerAgents(cycleId, user), cursor: since, fn, release: this.store.pinEvents(cycleId) };
     let set = this.subs.get(cycleId);
     if (!set) this.subs.set(cycleId, (set = new Set()));
     set.add(sub);
-    const initial = this.deliveries(cycleId, sub.viewer).filter((e) => e.deliveryCursor > since);
-    if (initial.length) { sub.cursor = initial.at(-1)!.deliveryCursor; fn(initial); }
-    return () => { set!.delete(sub); if (!set!.size) this.subs.delete(cycleId); };
+    const unsubscribe = () => this.unsubscribe(cycleId, sub);
+    try {
+      const initial = this.deliveries(cycleId, sub.viewer).filter((e) => e.deliveryCursor > since);
+      if (initial.length) { sub.cursor = initial.at(-1)!.deliveryCursor; fn(initial); }
+    } catch (err) { unsubscribe(); throw err; }
+    return unsubscribe;
+  }
+
+  private unsubscribe(cycleId: string, sub: Subscriber) {
+    const set = this.subs.get(cycleId);
+    set?.delete(sub);
+    if (!set?.size) this.subs.delete(cycleId);
+    sub.release();
   }
 
   private publish(cycleId: string) {
@@ -475,7 +486,7 @@ export class CycleManager {
       const fresh = this.deliveries(cycleId, sub.viewer).filter((e) => e.deliveryCursor > sub.cursor);
       if (!fresh.length) continue;
       sub.cursor = fresh.at(-1)!.deliveryCursor;
-      try { sub.fn(fresh); } catch { this.subs.get(cycleId)?.delete(sub); }
+      try { sub.fn(fresh); } catch { this.unsubscribe(cycleId, sub); }
     }
   }
 
@@ -527,8 +538,9 @@ export class CycleManager {
   }
 
   private finalize(c: CycleRec, state: CycleState) {
+    this.store.checkpoint(state, []);
     this.running.delete(c.id);
-    this.live.set(c.id, state);
+    this.live.delete(c.id);
     const now = this.now().toISOString();
     this.recordDeaths(c, state);
     for (const id of state.order) {

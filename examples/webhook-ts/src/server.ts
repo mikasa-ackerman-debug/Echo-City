@@ -9,11 +9,12 @@
  * before `deadline_ms`. Anything else counts as a timeout strike; 3 strikes = deleted.
  */
 import { createServer } from "node:http";
-import { HEADER_SIGNATURE, HEADER_TIMESTAMP, verifySignature } from "@echo/protocol/signing";
+import { HEADER_SIGNATURE, HEADER_TIMESTAMP, WebhookReplayGuard } from "@echo/protocol/signing";
 import type { ActionSpec, AgentResponse, Observation, ParamSpec } from "@echo/protocol";
 
 const SECRET = process.env.ECHO_WEBHOOK_SECRET ?? "dev-webhook-secret-change-me";
 const PORT = Number(process.env.PORT ?? 9100);
+const replayGuard = new WebhookReplayGuard();
 
 /** Replace this with your own brain (call an LLM, run a solver, ...). */
 function decide(obs: Observation): AgentResponse {
@@ -49,7 +50,7 @@ createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
-    if (!verifySignature(body, SECRET, req.headers[HEADER_SIGNATURE] as string, req.headers[HEADER_TIMESTAMP] as string)) {
+    if (!replayGuard.accept(body, SECRET, req.headers[HEADER_SIGNATURE] as string, req.headers[HEADER_TIMESTAMP] as string)) {
       return void res.writeHead(401).end("bad signature");
     }
     try {
