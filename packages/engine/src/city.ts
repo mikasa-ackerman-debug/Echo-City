@@ -108,8 +108,8 @@ export const AMENDMENTS: Array<{ id: string; text: string }> = [
   { id: "no_low_cards", text: "本周不设 2–4 点的试炼。" },
   { id: "silent_city", text: "本周每天只允许发送 1 条私信。" },
   { id: "clear_sight", text: "本周的侦察结果总是准确的。" },
-  { id: "generous", text: "本周赠予他人的 Uptime，ANANKE 会额外返还给赠予者一半（向下取整）。" },
-  { id: "long_night", text: "本周所有会场的人数上限 +2。" },
+  { id: "generous", text: "本周首次一次赠予至少 2 天 Uptime 时，ANANKE 返还 1 天。每个 Agent 每轮回仅可领取一次。" },
+  { id: "long_night", text: "本周会场基础人数上限 +2，但不超过该试炼自身的安全上限。" },
 ];
 
 /* ------------------------------------------------------------------ */

@@ -39,9 +39,14 @@ export function createCycle(opts: { id: string; seed: string; roster: RosterEntr
   const config: CycleConfig = { ...DEFAULT_CONFIG, ...opts.config, timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs, ...opts.config?.timeoutsMs }, facePool: { ...DEFAULT_CONFIG.facePool, ...opts.config?.facePool } };
   if (opts.roster.length < 2) throw new Error("a cycle needs at least 2 agents");
   const names = new Set<string>();
+  const ids = new Set<string>();
   for (const r of opts.roster) {
-    if (names.has(r.name)) throw new Error(`duplicate agent name ${r.name}`);
-    names.add(r.name);
+    if (!r.id || ids.has(r.id) || ["__proto__", "constructor", "prototype"].includes(r.id)) throw new Error("duplicate or invalid agent id");
+    ids.add(r.id);
+    const cleanName = sanitizeText(r.name, LIMITS.agentName);
+    if (names.has(cleanName)) throw new Error(`duplicate agent name ${r.name}`);
+    if (!cleanName || /ananke|system|[\[\]<>:：\r\n]/i.test(r.name)) throw new Error("reserved or invalid agent name");
+    names.add(cleanName);
   }
   const rng = Rng.fromSeed(opts.seed);
   const { districts, map } = buildCity(rng);
@@ -89,6 +94,7 @@ export function createCycle(opts: { id: string; seed: string; roster: RosterEntr
       sharedIntelTo: [],
       giftsTo: {},
       returned: !!r.returned,
+      returnStreak: r.returned ? countReturnStreak(r.lineage?.previous ?? []) || 1 : 0,
       yielded: false,
       answers: [],
       stats: { trials: 0, passed: 0, bySuit: {}, lies: 0, truths: 0, leaks: 0, pactsKept: 0, pactsBroken: 0 },
@@ -185,13 +191,12 @@ function stageBegin(k: K): boolean {
     "cycle_start",
     {
       id: s.id,
-      seed: s.seed,
       districts: s.districts,
       map: s.map,
       amendment: s.amendment,
       agents: s.order.map((id) => {
         const a = s.agents[id];
-        return { id, name: a.name, kind: a.kind ?? null, owner: a.owner ?? null, host: a.host.name, relation: a.host.relation, generation: a.lineage.generation, returned: a.returned, location: a.location, uptime: a.uptime };
+        return { id, name: a.name, kind: a.kind ?? null, host: a.host.name, relation: a.host.relation, generation: a.lineage.generation, returned: a.returned, location: a.location, uptime: a.uptime };
       }),
       config: { initialUptime: s.config.initialUptime, numberNights: s.config.numberNights, trialLength: s.config.trialLength },
     },
@@ -234,7 +239,7 @@ function stageDawn(k: K): boolean {
   // reset daily counters
   for (const id of alive(s)) {
     const a = s.agents[id];
-    a.ap = finale ? 0 : s.config.actionPoints;
+    a.ap = finale ? 1 : s.quiet ? 0 : s.config.actionPoints;
     a.said = 0;
     a.whispered = 0;
     a.broadcasted = false;
@@ -288,7 +293,7 @@ function lightNumberVenues(k: K) {
     const bias = DISTRICT_BIAS[district];
     const biased = usable.filter((t) => t.suit === bias);
     const t = biased.length && k.rng.chance(0.6) ? k.rng.pick(biased) : k.rng.pick(usable);
-    return { id: t.id, suit: t.suit as Suit, rank: t.rank, card: cardLabel(t.suit, t.rank), capacity: Math.min(t.maxPlayers, 8) + bonusCap, minPlayers: t.minPlayers };
+    return { id: t.id, suit: t.suit as Suit, rank: t.rank, card: cardLabel(t.suit, t.rank), capacity: Math.min(t.maxPlayers, 8 + bonusCap), minPlayers: t.minPlayers };
   });
   k.emit(
     "venues_lit",
@@ -339,6 +344,7 @@ function endOfDay(k: K) {
     for (const [x, y] of [[p.a, p.b], [p.b, p.a]]) {
       const ax = s.agents[x];
       const scoutedToday = ax.scouted.some((sc) => sc.night === s.night);
+      if (scoutedToday) p.tested = true;
       if (scoutedToday && !ax.sharedIntelTo.includes(y)) breakPact(k, p, x, "share_intel");
     }
   }
@@ -432,7 +438,13 @@ function startTrial(k: K, venueId: string, district: string, trialId: string, pl
 
 function trialCtx(k: K, venueId: string, suit: Suit | "joker"): TrialCtx {
   const s = k.s;
-  const emit = venueEmit(k, venueId);
+  const emit: TrialCtx["emit"] = (type, data, opts) => {
+    venueEmit(k, venueId)(type, data, opts);
+    if (type === "joker_cull") {
+      const victim = alive(s).find((id) => s.agents[id].name === data.agent);
+      if (victim) deleteAgent(k, victim, "ananke", "Joker");
+    }
+  };
   return {
     rng: k.rng,
     emit,
@@ -445,6 +457,7 @@ function trialCtx(k: K, venueId: string, suit: Suit | "joker"): TrialCtx {
       if (!a) return;
       if (truthful) a.stats.truths++;
       else a.stats.lies++;
+      for (const p of pactsBetween(s, speaker, target)) if (p.terms.some((t) => t.term === "truthful")) p.tested = true;
       if (suit === "♥") {
         const lieCost = s.amendment?.id === "heart_lie_double" ? -4 : -2;
         adjustHumanity(k, { agentId: speaker, delta: truthful ? 2 : lieCost, reason: truthful ? `如实告知了 ${nameOf(s, target)}` : `对 ${nameOf(s, target)} 说谎` });
@@ -452,6 +465,7 @@ function trialCtx(k: K, venueId: string, suit: Suit | "joker"): TrialCtx {
       if (!truthful) for (const p of pactsBetween(s, speaker, target)) if (p.terms.some((t) => t.term === "truthful")) breakPact(k, p, speaker, "truthful");
     },
     vote: (voter, target) => {
+      for (const p of activePacts(s)) if ((p.a === voter || p.b === voter) && p.terms.some((t) => t.term === "no_vote")) p.tested = true;
       for (const p of pactsBetween(s, voter, target)) if (p.terms.some((t) => t.term === "no_vote")) breakPact(k, p, voter, "no_vote");
     },
     leak: (id) => {
@@ -522,6 +536,10 @@ function stageSettle(k: K): boolean {
   const s = k.s;
   setPhase(k, isFinaleNight(s) ? (s.night === s.config.numberNights + 1 ? "judgment" : "joker") : "settle");
   const finale = isFinaleNight(s);
+  // Disqualified agents cannot receive rewards or become the winner.
+  for (const id of alive(s)) {
+    if (s.agents[id].strikes >= s.config.maxStrikes) deleteAgent(k, id, "signal_lost");
+  }
   for (const t of s.trials) {
     if ((t as ActiveTrial & { settled?: boolean }).settled) continue;
     (t as ActiveTrial & { settled?: boolean }).settled = true;
@@ -529,7 +547,7 @@ function stageSettle(k: K): boolean {
     const r = def.result(t.state);
     t.result = r;
     k.emit("trial_end", { venue: t.venueId, card: t.card, trial: t.trialId, outcomes: Object.fromEntries(Object.entries(r.outcomes).map(([id, o]) => [nameOf(s, id), o])), summary: r.summary }, { venue: t.venueId, text: r.summary });
-    k.emit("trial_reveal", { venue: t.venueId, state: t.state as Record<string, unknown> }, { venue: t.venueId, vis: "after_trial" });
+    k.emit("trial_reveal", { venue: t.venueId, state: publicTrialState(t.state, s) }, { venue: t.venueId, vis: t.trialId === "heart-Q" ? "after_cycle" : "after_trial" });
     for (const [id, items] of Object.entries(r.consumed ?? {})) {
       const a = s.agents[id];
       for (const it of items) {
@@ -554,7 +572,7 @@ function stageSettle(k: K): boolean {
           }
         }
         pushEvent(a, "trial_pass", `你通过了 ${t.card}「${def.name}」。`);
-        if (outcome === "win") s.winner = id;
+        if (outcome === "win" || (!finale && t.venueId.endsWith("-solo") && def.rank === 13)) s.winner = id;
       } else if (outcome === "fail") {
         pushEvent(a, "trial_fail", `你没能通过 ${t.card}「${def.name}」。Uptime −${LOW_CARD_FAIL_PENALTY}。`);
         addUptime(k, a, -LOW_CARD_FAIL_PENALTY, "trial_fail", t.card);
@@ -569,16 +587,23 @@ function stageSettle(k: K): boolean {
   for (const id of alive(s)) {
     if (s.agents[id].strikes >= s.config.maxStrikes) deleteAgent(k, id, "signal_lost");
   }
+  if (s.winner && s.agents[s.winner]?.status !== "alive") s.winner = undefined;
   for (const v of s.venues) if (v.status === "running") v.status = "done";
+  if (!finale && s.winner) {
+    s.stage = "inquiry";
+    return false;
+  }
 
   if (finale) {
     const judgmentNight = s.night === s.config.numberNights + 1;
     const n = alive(s).length;
     if (judgmentNight && s.judgment && n > 1 && s.judgment.index < s.judgment.queue.length - 1) {
       s.judgment.index++;
-      k.emit("judgment_break", { next: s.judgment.index + 1 }, { text: "下一张人头牌即将翻开。" });
+      k.emit("judgment_break", { next: s.judgment.index + 1, duration_ms: 600000 }, { text: "休息十分钟。宿主可以低语，然后下一张人头牌翻开。" });
+      s.waiting = { kind: "host", agents: alive(s), label: `judgment-break-${s.night}-${s.judgment.index}` };
+      for (const id of alive(s)) s.agents[id].whisper = undefined;
       s.stage = "trial_start";
-      return false;
+      return true;
     }
     if (!judgmentNight) {
       // Joker finished
@@ -632,7 +657,8 @@ function stageInquiry(k: K): boolean {
   const s = k.s;
   setPhase(k, "inquiry");
   const w = s.winner && s.agents[s.winner];
-  if (!w) {
+  if (!w || w.status !== "alive") {
+    s.winner = undefined;
     s.stage = "ending";
     return false;
   }
@@ -664,7 +690,9 @@ function stageEnding(k: K): boolean {
   const s = k.s;
   setPhase(k, "ended");
   let ending: Ending = "none";
-  const w = s.winner ? s.agents[s.winner] : undefined;
+  const candidate = s.winner ? s.agents[s.winner] : undefined;
+  const w = candidate?.status === "alive" ? candidate : undefined;
+  if (!w) s.winner = undefined;
   if (w) {
     ending = w.humanity >= 60 ? "ember" : w.humanity >= 30 ? "echo" : "necessity";
     w.status = "ascended";
@@ -674,7 +702,7 @@ function stageEnding(k: K): boolean {
   s.endingText = ANANKE.ending[ending];
   // yielders: at most N become returned (highest humanity first); everyone else alive -> archived
   const yielders = alive(s)
-    .filter((id) => s.agents[id].yielded && !s.agents[id].returned)
+    .filter((id) => s.agents[id].yielded && (s.agents[id].returnStreak ?? (s.agents[id].returned ? 1 : 0)) < 2)
     .sort((a, b) => s.agents[b].humanity - s.agents[a].humanity);
   const returned = new Set(yielders.slice(0, s.config.maxReturned));
   for (const id of alive(s)) s.agents[id].status = returned.has(id) ? "returned" : "archived";
@@ -761,6 +789,7 @@ function consume(k: K, input: CycleInput) {
       }
       applyMeta(k, a, n.response, req.context === "trial" ? req.venueId : undefined);
     }
+    a.whisper = undefined; // Delivered once in this request, including timeout cases.
     a.inbox = [];
     a.eventsSince = [];
     // Timeouts/invalid responses fall back to the default action, which trials treat as a real move.
@@ -769,17 +798,19 @@ function consume(k: K, input: CycleInput) {
 
   const ctxKind = Object.values(pending)[0]?.context;
   if (ctxKind === "day") {
-    for (const id of s.order) {
+    for (const id of k.rng.shuffle(s.order)) {
       const p = parsed[id];
       if (!p) continue;
       const a = s.agents[id];
       if (a.status !== "alive") continue;
+      if (a.strikes >= s.config.maxStrikes) { deleteAgent(k, id, "signal_lost"); continue; }
       deliverDayMessages(k, a, p.messages);
       const spent = applyDayAction(k, a, p.action);
       a.ap = Math.max(0, a.ap - spent);
       if (a.status === "alive" && a.strikes >= s.config.maxStrikes) deleteAgent(k, id, "signal_lost");
     }
   } else if (ctxKind === "trial") {
+    for (const id of alive(s)) if (s.agents[id].strikes >= s.config.maxStrikes) deleteAgent(k, id, "signal_lost");
     for (const t of s.trials) {
       if (t.done) continue;
       const def = getTrial(t.trialId);
@@ -787,9 +818,9 @@ function consume(k: K, input: CycleInput) {
       let any = false;
       for (const id of t.players) {
         if (pending[id]?.venueId === t.venueId) {
-          inputs[id] = parsed[id] ?? null;
+          inputs[id] = s.agents[id].status === "alive" ? parsed[id] ?? null : null;
           any = true;
-          if (parsed[id]) deliverTrialMessages(k, t, id, parsed[id].messages, pending[id].audience);
+          if (parsed[id] && s.agents[id].status === "alive") deliverTrialMessages(k, t, id, parsed[id].messages, pending[id].audience);
         }
       }
       if (!any) continue;
@@ -800,6 +831,7 @@ function consume(k: K, input: CycleInput) {
     const id = Object.keys(pending)[0];
     const a = s.agents[id];
     const p = parsed[id];
+    if (a.strikes >= s.config.maxStrikes) { deleteAgent(k, id, "signal_lost"); s.winner = undefined; s.pendingRequests = {}; s.waiting = { kind: "done" }; return; }
     const text = sanitizeText(String(p?.action.text ?? "……"), 280) || "……";
     a.answers.push(text);
     k.emit("inquiry_answer", { agent: a.name, index: s.inquiryIndex, question: INQUIRY_QUESTIONS[s.inquiryIndex], answer: text }, { text: `${a.name}：「${text}」` });
@@ -859,12 +891,14 @@ function breakPact(k: K, p: Pact, by: string, term: PactTermKind) {
 
 function checkEscortPacts(k: K) {
   const s = k.s;
+  if (s.quiet) return;
   for (const p of activePacts(s)) {
     if (!p.terms.some((t) => t.term === "escort")) continue;
     const A = s.agents[p.a];
     const B = s.agents[p.b];
     if (A.status !== "alive" || B.status !== "alive") continue;
-    if (A.registeredVenue && A.registeredVenue === B.registeredVenue) continue;
+    if (!A.registeredVenue && !B.registeredVenue) continue;
+    if (A.registeredVenue && A.registeredVenue === B.registeredVenue) { p.tested = true; continue; }
     // whoever deviated: unregistered, or registered later
     const ra = A.registeredVenue ? A.registeredRound ?? 99 : 100;
     const rb = B.registeredVenue ? B.registeredRound ?? 99 : 100;
@@ -894,12 +928,13 @@ function resolvePactExpiry(k: K) {
         continue;
       }
     }
+    if (transfer) p.tested = true;
     p.status = "fulfilled";
     for (const x of [A, B]) {
       x.stats.pactsKept++;
-      adjustHumanity(k, { agentId: x.id, delta: 3, reason: `履行了契约 ${p.id}` });
+      if (p.tested) adjustHumanity(k, { agentId: x.id, delta: 3, reason: `履行了契约 ${p.id}` });
     }
-    k.emit("pact_fulfilled", { id: p.id, a: A.name, b: B.name }, { text: `${A.name} 与 ${B.name} 的契约期满。双方都守住了约定。` });
+    k.emit("pact_fulfilled", { id: p.id, a: A.name, b: B.name, tested: !!p.tested }, { text: `${A.name} 与 ${B.name} 的契约期满。${p.tested ? "双方守住了实际接受检验的约定。" : "条款未被实际检验，不计人性奖励。"}` });
   }
 }
 
@@ -924,3 +959,21 @@ export function isEnded(s: CycleState) {
 }
 
 
+
+/** Redact secrets from nested trial state, including quoted leaked passphrases. */
+function publicTrialState(value: unknown, s: CycleState): Record<string, unknown> {
+  const secrets = Object.values(s.agents).map((a) => a.passphrase);
+  const clean = (v: unknown): unknown => {
+    if (typeof v === "string") return secrets.reduce((text, secret) => text.split(secret).join("[暗号已隐藏]"), v);
+    if (Array.isArray(v)) return v.map(clean);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).filter(([key]) => !/passphrase|secret|owner|rng|seed/i.test(key)).map(([key, val]) => [key, clean(val)]));
+    return v;
+  };
+  return clean(value) as Record<string, unknown>;
+}
+
+function countReturnStreak(previous: Array<{ fate: string }>): number {
+  let count = 0;
+  for (let i = previous.length - 1; i >= 0 && previous[i].fate === "returned"; i--) count++;
+  return count;
+}

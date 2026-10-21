@@ -71,7 +71,7 @@ describe("cycle", () => {
     expect(r.state.waiting.kind).toBe("agents");
     const obs = buildObservation(r.state, "a0");
     expect(obs.phase).toBe("day");
-    expect(obs.self.uptime).toBe(3);
+    expect(obs.self.uptime).toBe(2);
     expect(obs.legal_actions.some((a) => a.type === "rest")).toBe(true);
     expect(obs.city?.map).toBeTruthy();
   });

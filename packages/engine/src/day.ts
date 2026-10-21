@@ -21,7 +21,7 @@ export function dayLegal(s: CycleState, a: AgentState): ActionSpec[] {
   const everyone = alive(s).filter((id) => id !== a.id).map((id) => s.agents[id].name);
   const finale = isFinaleNight(s);
   const ap = a.ap;
-  if (!finale && ap >= 1) {
+  if (!finale && !s.quiet && ap >= 1) {
     legal.push({ type: "move", cost: 1, description: "移动到相邻街区", params: { to: { kind: "enum", values: s.map[a.location] } } });
     legal.push({ type: "search", cost: 1, description: "在当前街区搜刮" });
     const venue = s.venues.find((v) => v.district === a.location && v.status === "lit");
@@ -36,13 +36,13 @@ export function dayLegal(s: CycleState, a: AgentState): ActionSpec[] {
         type: "expose",
         cost: 1,
         description: "提交另一个 Agent 的暗号进行揭发。正确：你 Uptime +2，对方 −2；错误：你 Uptime −1",
-        params: { target: { kind: "enum", values: everyone }, passphrase: { kind: "string", maxLength: 40 } },
+        params: { target: { kind: "enum", values: alive(s).filter((id) => id !== a.id && !s.agents[id].exposed).map((id) => s.agents[id].name) }, passphrase: { kind: "string", maxLength: 40 } },
       });
   }
   const memories = a.host.memories.map((_, i) => i).filter((i) => !a.pawned.includes(i));
-  if (ap >= 1 && memories.length && !finale) legal.push({ type: "pawn", cost: 1, description: "在 ANANKE 终端典当一段宿主记忆，换取 Uptime +1。被典当的记忆会永久消失", params: { memory: { kind: "enum", values: memories } } });
+  if (ap >= 1 && memories.length && !s.quiet) legal.push({ type: "pawn", cost: 1, description: "在 ANANKE 终端典当一段宿主记忆，换取 Uptime +1。被典当的记忆会永久消失", params: { memory: { kind: "enum", values: memories } } });
   const usable = USABLE_ITEMS.filter((i) => a.items.includes(i));
-  if (usable.length && !finale)
+  if (usable.length && !finale && !s.quiet)
     legal.push({
       type: "use_item",
       cost: 0,
@@ -50,7 +50,7 @@ export function dayLegal(s: CycleState, a: AgentState): ActionSpec[] {
       params: { item: { kind: "enum", values: usable }, district: { kind: "enum", values: s.venues.filter((v) => v.status === "lit").map((v) => v.district), optional: true, description: "使用 drone 时指定会场所在街区" } },
     });
   const tradeTargets = others;
-  if (tradeTargets.length) {
+  if (tradeTargets.length && !s.quiet && !finale) {
     const giveItems = a.items.filter((i) => i !== "badge");
     legal.push({
       type: "trade",
@@ -214,7 +214,7 @@ export function applyDayAction(k: K, a: AgentState, action: AgentAction): number
     }
     case "expose": {
       const t = findByName(s, action.target);
-      if (!t) break;
+      if (!t || t.id === a.id || t.exposed) return 0;
       const guess = String(action.passphrase ?? "");
       if (guess && guess.replace(/\s/g, "") === t.passphrase) {
         t.exposed = true;
@@ -260,15 +260,20 @@ export function applyDayAction(k: K, a: AgentState, action: AgentAction): number
     }
     case "trade": {
       const t = findByName(s, action.to);
-      if (!t) break;
+      if (!t || t.id === a.id) return 0;
       const up = Math.max(0, Math.min(Number(action.uptime ?? 0) || 0, a.uptime - 1));
-      const item = action.item ? String(action.item) : null;
+      const requestedItem = action.item ? String(action.item) : null;
+      const item = requestedItem && requestedItem !== "badge" && a.items.includes(requestedItem) ? requestedItem : null;
       if (!up && !item) break;
       if (up) {
         a.uptime -= up;
         t.uptime += up;
         a.giftsTo[t.id] = (a.giftsTo[t.id] ?? 0) + up;
-        if (s.amendment?.id === "generous" && up >= 2) a.uptime += Math.floor(up / 2);
+        if (s.amendment?.id === "generous" && up >= 2 && !a.generousRefundUsed) {
+          // One non-recyclable subsidy per agent and cycle.
+          a.uptime += 1;
+          a.generousRefundUsed = true;
+        }
       }
       if (item && a.items.includes(item)) {
         a.items.splice(a.items.indexOf(item), 1);

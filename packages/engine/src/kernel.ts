@@ -39,17 +39,32 @@ export const nameOf = (s: CycleState, id: string) => s.agents[id]?.name ?? id;
 
 export function adjustHumanity(k: K, ch: HumanityChange) {
   const a = k.s.agents[ch.agentId];
-  if (!a) return;
+  if (!a || a.status !== "alive") return;
+  let delta = ch.delta;
+  if (delta > 0) {
+    const category = ch.reason.startsWith("赠予") ? "gift" : ch.reason.startsWith("如实告知") ? "truth" : ch.reason.startsWith("履行了契约") ? "pact" : undefined;
+    if (category) {
+      const budgets = { gift: [5, 10], truth: [2, 6], pact: [3, 6] };
+      const [daily, lifetime] = budgets[category];
+      const rewards = a.humanityRewards ??= {};
+      const key = `${category}:${k.s.night}`;
+      delta = Math.min(delta, daily - (rewards[key] ?? 0), lifetime - (rewards[category] ?? 0));
+      if (delta <= 0) return;
+      rewards[key] = (rewards[key] ?? 0) + delta;
+      rewards[category] = (rewards[category] ?? 0) + delta;
+    }
+  }
   const before = a.humanity;
-  a.humanity = Math.max(0, Math.min(100, a.humanity + ch.delta));
+  a.humanity = Math.max(0, Math.min(100, a.humanity + delta));
   a.humanityLog.push({ night: k.s.night, delta: a.humanity - before, reason: ch.reason });
-  k.emit("humanity", { agent: a.name, id: a.id, delta: ch.delta, reason: ch.reason, value: a.humanity }, { vis: "after_cycle" });
+  k.emit("humanity", { agent: a.name, id: a.id, delta: a.humanity - before, reason: ch.reason, value: a.humanity }, { vis: "after_cycle" });
 }
 
 export function deleteAgent(k: K, id: string, reason: DeleteReason, card?: string) {
   const a = k.s.agents[id];
   if (!a || a.status !== "alive") return;
   a.status = "deleted";
+  if (k.s.winner === id) k.s.winner = undefined;
   k.s.deathCounter++;
   const remaining = a.host.memories.map((m, i) => ({ m, i })).filter((x) => !a.pawned.includes(x.i));
   const epitaph = remaining.length ? k.rng.pick(remaining).m : undefined;
@@ -76,6 +91,6 @@ export function deleteAgent(k: K, id: string, reason: DeleteReason, card?: strin
 export function addUptime(k: K, a: AgentState, delta: number, reason: string, card?: string) {
   if (a.status !== "alive" || delta === 0) return;
   a.uptime += delta;
-  k.emit("uptime", { agent: a.name, id: a.id, delta, value: a.uptime, reason }, { owners: [a.id] });
+  k.emit("uptime", { agent: a.name, id: a.id, delta, value: a.uptime, reason }, { owners: [a.id], vis: reason === "patch" ? "after_night" : "public" });
   if (a.uptime <= 0) deleteAgent(k, a.id, reason === "trial_fail" ? "trial" : "uptime", card);
 }

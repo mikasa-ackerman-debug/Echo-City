@@ -97,7 +97,7 @@ export const diamondK: TrialDef<BeautyState> = {
       "目标值 = 所有人所选数字的平均值 × 0.8。最接近目标值的人获胜，其他人各 −1 分。未作选择视为放弃，直接 −1 分且不能获胜。",
       "每删除一人，就追加一条新规则：",
       ...BEAUTY_RULES.map((r, i) => `  ${i + 1}. ${r}`),
-      `最多进行 ${length === "short" ? 6 : 12} 回合。通关条件：在守门人之外活到最后。若守门人成为唯一的幸存者，其余所有人都被删除。`,
+      `最多进行 ${length === "short" ? 6 : 12} 回合。通关条件：在守门人之外活到最后。若守门人成为唯一的幸存者，其余所有人都被删除。若至少两名 Agent 入场且到回合上限仍无人被删除，分数最低的一名 Agent 被删除（同分随机裁决）。`,
     ].join("\n"),
 
   setup(players: TrialPlayer[], ctx: TrialCtx): BeautyState {
@@ -196,10 +196,22 @@ export const diamondK: TrialDef<BeautyState> = {
     }
     const r = resolveBeautyRound(picks, s.alive, s.rulesActive);
     for (const id of s.alive) {
-      if (r.invalid.includes(id)) s.scores[id] -= 1;
-      if (!r.winners.includes(id)) s.scores[id] -= r.penalty;
+      // Collision invalidation replaces, rather than adds to, the loser penalty.
+      if (r.invalid.includes(id) || picks[id] == null) s.scores[id] -= 1;
+      else if (!r.winners.includes(id)) s.scores[id] -= r.penalty;
     }
     const eliminated = s.alive.filter((id) => s.scores[id] <= s.floor);
+    const humanIds = s.ids.filter((id) => id !== GATEKEEPER_K);
+    if (s.round >= s.maxRounds && humanIds.length >= 2 &&
+        !s.deleted.some((id) => id !== GATEKEEPER_K) &&
+        !eliminated.some((id) => id !== GATEKEEPER_K)) {
+      const candidates = s.alive.filter((id) => id !== GATEKEEPER_K);
+      const lowest = Math.min(...candidates.map((id) => s.scores[id]));
+      const loser = ctx.rng.pick(candidates.filter((id) => s.scores[id] === lowest));
+      eliminated.push(loser);
+      ctx.emit("beauty_cap", { round: s.round, id: loser, agent: s.names[loser], score: s.scores[loser] },
+        { text: `回合上限裁决：${s.names[loser]} 以最低分被删除（同分随机裁决）。` });
+    }
     const record: RoundRecord = { round: s.round, picks, ...r, eliminated };
     s.history.push(record);
     ctx.emit(
@@ -224,7 +236,7 @@ export const diamondK: TrialDef<BeautyState> = {
     for (const id of eliminated) {
       s.alive = s.alive.filter((x) => x !== id);
       s.deleted.push(id);
-      ctx.emit("trial_elimination", { agent: s.names[id], id, score: s.scores[id] }, { text: `${s.names[id]} 的分数降至 ${s.scores[id]}。` });
+      ctx.emit("trial_elimination", { agent: s.names[id], id, score: s.scores[id] }, { text: `${s.names[id]} 被删除，最终分数 ${s.scores[id]}。` });
       if (s.rulesActive < BEAUTY_RULES.length) {
         s.rulesActive++;
         ctx.emit("rule_added", { rule: BEAUTY_RULES[s.rulesActive - 1], index: s.rulesActive }, { text: `因参与者减少，规则更新如下：${BEAUTY_RULES[s.rulesActive - 1]}` });

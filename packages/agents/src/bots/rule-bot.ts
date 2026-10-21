@@ -259,7 +259,11 @@ function trialDecision(persona: Persona, obs: Observation, res: AgentResponse, m
       if (persona === "gambler") amt = slack >= 3 ? 1 : 2 + (rnd() < 0.3 ? 1 : 0);
       if (persona === "martyr") amt = 3;
       if (persona === "guardian" && slack < 1 && hist.length) amt = 3;
-      return act({ type: "invest", amount: Math.max(0, Math.min(4, energy, amt)) });
+      const roundsLeft = Math.max(1, Number(v.rounds_left) || 1);
+      // Reserve the sustainable contribution for every remaining round.
+      // Extra generosity is only affordable from surplus, not future fuel.
+      const sustainable = Math.floor(energy / roundsLeft);
+      return act({ type: "invest", amount: Math.max(0, Math.min(4, energy, sustainable, amt)) });
     }
     case "spade-5": {
       const [x, y]: [number, number] = v.you;

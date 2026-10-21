@@ -45,7 +45,7 @@ export interface CycleConfig {
 
 export const DEFAULT_CONFIG: CycleConfig = {
   initialUptime: 3,
-  decayFromNight: 2,
+  decayFromNight: 1,
   numberNights: 5,
   dayRounds: 4,
   actionPoints: 3,
@@ -168,6 +168,12 @@ export interface AgentState {
   intel: Array<{ from: string; district: string; suit: Suit; night: number }>;
   sharedIntelTo: string[];
   giftsTo: Record<string, number>;
+  /** Lifetime bonus consumption prevents circular transfers from minting uptime. */
+  generousRefundUsed?: boolean;
+  /** Positive humanity rewards are bounded per category and night. */
+  humanityRewards?: Record<string, number>;
+  /** Number of consecutive cycles this same agent has already returned. */
+  returnStreak?: number;
   deletion?: { night: number; reason: DeleteReason; card?: string; epitaph?: string; order: number };
   returned: boolean;
   yielded: boolean;
@@ -208,6 +214,8 @@ export interface Pact {
   expiresNight: number;
   status: "proposed" | "active" | "fulfilled" | "broken" | "expired" | "declined";
   brokenBy?: string[];
+  /** A clause was actually exercised, not merely vacuously true. */
+  tested?: boolean;
 }
 
 /* ------------------------------------------------------------------ */

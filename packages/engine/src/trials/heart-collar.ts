@@ -71,7 +71,7 @@ function makeCollarTrial(variant: "heart-4" | "heart-J"): TrialDef<CollarState> 
           ? [
               "参与者中混入了一名守门人 JACK OF HEARTS，他伪装成普通的 Agent，知道所有人的花色，并会说谎。",
               "每回合宣告结束后进行一次投票，可以处决一名“疑似守门人”。得票超过存活人数一半才执行。处决错了，被处决的 Agent 会被删除。",
-              `通关条件：找出守门人，或撑过第 ${rounds} 回合。`,
+              `通关条件：找出守门人，或撑过第 ${rounds} 回合。若至少两名 Agent 入场且到回合上限仍无人被删除，获知自身花色的正式告知支持最少的一名 Agent 被删除（同数随机裁决）。`,
             ]
           : [`通关条件：撑过 ${rounds} 回合。`]),
       ].join("\n");
@@ -82,7 +82,15 @@ function makeCollarTrial(variant: "heart-4" | "heart-J"): TrialDef<CollarState> 
       const names: Record<string, string> = Object.fromEntries(players.map((p) => [p.id, p.name]));
       if (isJ) {
         const used = new Set(Object.values(names));
-        const alias = JACK_ALIASES.find((a) => !used.has(a)) ?? `Agent-${ctx.rng.int(100, 999)}`;
+        const available = JACK_ALIASES.filter((a) => !used.has(a));
+        let alias: string;
+        if (available.length) alias = ctx.rng.pick(available);
+        else {
+          const start = ctx.rng.int(100, 999);
+          let suffix = start;
+          while (used.has(`Agent-${suffix}`)) suffix++;
+          alias = `Agent-${suffix}`;
+        }
         names[JACK_ID] = alias;
         const pos = ctx.rng.int(0, ids.length);
         ids.splice(pos, 0, JACK_ID);
@@ -199,7 +207,15 @@ function makeCollarTrial(variant: "heart-4" | "heart-J"): TrialDef<CollarState> 
           }
         }
         if (s.jackAlive) {
-          // Jack lies to a few targets, preferring those with few other claims.
+          const line = ctx.rng.pick([
+            "我会私下告诉几个人花色。交叉核对比盲信一个人安全。",
+            "先确认谁看到了你的项圈，再决定要相信哪条消息。",
+            "一条错误消息不代表所有话都是假的，但我们得记住来源。",
+            "我也需要别人告诉我花色；愿意互相核对的人可以联系我。",
+          ]);
+          ctx.emit("trial_message", { from: s.names[JACK_ID], channel: "table", text: line },
+            { text: `${s.names[JACK_ID]}：${line}` });
+          // Jack mixes private lies with truth to build credibility.
           const targets = ctx.rng.shuffle(s.alive.filter((x) => x !== JACK_ID)).slice(0, Math.max(1, Math.ceil((s.alive.length - 1) / 2)));
           for (const t of targets) {
             const wrong = ctx.rng.pick(SUITS.filter((x) => x !== s.collars[t]));
@@ -210,6 +226,8 @@ function makeCollarTrial(variant: "heart-4" | "heart-J"): TrialDef<CollarState> 
           const honest = s.alive.find((x) => x !== JACK_ID && !targets.includes(x));
           if (honest) {
             s.claims.push({ from: JACK_ID, to: honest, suit: s.collars[honest], truthful: true });
+            ctx.emit("collar_claim", { from: s.names[JACK_ID], to: s.names[honest], suit: s.collars[honest], truthful: true },
+              { vis: "after_trial", text: `${s.names[JACK_ID]} 告诉 ${s.names[honest]}：你的项圈是 ${s.collars[honest]}。` });
           }
         }
         s.step = "declare";
@@ -222,6 +240,8 @@ function makeCollarTrial(variant: "heart-4" | "heart-J"): TrialDef<CollarState> 
         for (const id of s.alive) {
           if (id === JACK_ID) {
             declarations[id] = { said: s.collars[id], actual: s.collars[id], ok: true };
+            ctx.emit("trial_message", { from: s.names[id], channel: "table", text: `我宣告：${s.collars[id]}。` },
+              { text: `${s.names[id]} 宣告：${s.collars[id]}。` });
             continue;
           }
           const input = inputs[id];
@@ -296,6 +316,20 @@ function makeCollarTrial(variant: "heart-4" | "heart-J"): TrialDef<CollarState> 
         }
         s.round++;
         s.step = "talk";
+      }
+      if (isJ && !s.done && s.round > s.maxRounds &&
+          s.ids.filter((id) => id !== JACK_ID).length >= 2 && s.deleted.length === 0) {
+        const humans = s.alive.filter((id) => id !== JACK_ID);
+        // Reward corroborated self-knowledge, not knowledge of the hidden role.
+        // Keep all recorded declarations truthful; this is a separate cap ruling.
+        const support = Object.fromEntries(humans.map((id) => [id,
+          s.history.reduce((total, h) => total + h.claims.filter((c) => c.to === id && c.truthful).length, 0)]));
+        const lowest = Math.min(...humans.map((id) => support[id]));
+        const loser = ctx.rng.pick(humans.filter((id) => support[id] === lowest));
+        s.alive = s.alive.filter((id) => id !== loser);
+        s.deleted.push(loser);
+        ctx.emit("collar_cap", { round: s.maxRounds, id: loser, agent: s.names[loser] },
+          { text: `回合上限裁决：${s.names[loser]} 的正式告知支持最少，被删除（同数随机裁决）。` });
       }
       const humansLeft = s.alive.filter((x) => x !== JACK_ID).length;
       if (humansLeft === 0 || s.round > s.maxRounds) s.done = true;

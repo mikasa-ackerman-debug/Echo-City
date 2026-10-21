@@ -57,7 +57,7 @@ export const spade5: TrialDef<HoundState> = {
     [
       `12×12 的网格（坐标 x、y 均为 0–11）。一只猎犬每回合走 1 步（每第 4 回合冲刺 2 步），总是追向离它最近的 Agent（曼哈顿距离，同距离时按入场顺序）。`,
       `坚持 ${length === "short" ? 10 : 20} 回合。每回合每人同时选择移动方向 N/E/S/W 或 stay，每回合超时 5 秒。`,
-      "两个 Agent 不能站在同一格：如果目标格已有人（或有人同时要进入），你留在原地。你可以用身体卡位，把猎犬引向别人。",
+      "两个 Agent 不能站在同一格：同时争抢同一目标格时都留在原地；进入未腾空的格子会被阻挡，阻挡沿移动链传递。允许互换位置或循环换位。你可以用身体卡位，把猎犬引向别人。",
       "持有「镜像诱饵」的 Agent 被抓时会自动消耗诱饵逃脱一次，猎犬被传送到地图的一角。",
       "通关条件：没有被抓。失败：删除。",
     ].join("\n"),
@@ -117,7 +117,6 @@ export const spade5: TrialDef<HoundState> = {
   },
 
   step(s, inputs: Record<string, TrialInput | null>, ctx: TrialCtx) {
-    const targetBefore = houndTarget(s);
     // 1) agents move simultaneously; conflicts -> stay
     const wish: Record<string, [number, number]> = {};
     for (const id of s.alive) {
@@ -134,18 +133,24 @@ export const spade5: TrialDef<HoundState> = {
     }
     const count = new Map<string, number>();
     for (const id of s.alive) count.set(wish[id].join(","), (count.get(wish[id].join(",")) ?? 0) + 1);
-    const occupiedNow = new Set(s.alive.map((id) => s.pos[id].join(",")));
-    for (const id of s.alive) {
-      const key = wish[id].join(",");
-      const own = s.pos[id].join(",");
-      if (key === own) continue;
-      if ((count.get(key) ?? 0) > 1) continue;
-      if (occupiedNow.has(key)) {
-        const occupant = s.alive.find((o) => s.pos[o].join(",") === key)!;
-        if (wish[occupant].join(",") === key) continue; // occupant stays
+    const occupant = new Map(s.alive.map((id) => [s.pos[id].join(","), id]));
+    const blocked = new Set(s.alive.filter((id) =>
+      wish[id].join(",") === s.pos[id].join(",") || (count.get(wish[id].join(",")) ?? 0) > 1));
+    // A failed mover keeps its old square, so predecessors also fail. Cycles
+    // with unique destinations have no blocked seed and can move together.
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const id of s.alive) {
+        if (blocked.has(id)) continue;
+        const ahead = occupant.get(wish[id].join(","));
+        if (ahead && blocked.has(ahead)) {
+          blocked.add(id);
+          changed = true;
+        }
       }
-      s.pos[id] = wish[id];
     }
+    for (const id of s.alive) if (!blocked.has(id)) s.pos[id] = wish[id];
     // 2) hound moves step by step, catching on contact
     const caughtThisRound: string[] = [];
     const speed = s.round % 4 === 0 ? s.houndSpeed + 1 : s.houndSpeed;
@@ -166,10 +171,7 @@ export const spade5: TrialDef<HoundState> = {
         s.alive = s.alive.filter((x) => x !== victim);
         s.caught.push({ id: victim, round: s.round });
         caughtThisRound.push(victim);
-        // GDD 9.2: lured the hound onto someone else.
-        if (targetBefore && targetBefore !== victim && s.alive.includes(targetBefore)) {
-          ctx.humanity({ agentId: targetBefore, delta: -3, reason: `把猎犬引向了 ${s.names[victim]}` });
-        }
+        // Nearest-prey changes alone do not establish intentional luring.
         break;
       }
     }

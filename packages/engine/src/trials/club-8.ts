@@ -27,7 +27,7 @@ export const club8: TrialDef<LifeboatState> = {
   tests: "公共品博弈：搭便车能多拿 Uptime，但可能害死所有人",
   rules: (length) =>
     [
-      `每人起始 12 点能量。共 ${length === "short" ? 3 : 5} 回合，每回合先在小组频道交流一轮，然后每人秘密投入 0–4 点能量维持救生艇的引擎。`,
+      `每人起始 10 点能量。共 ${length === "short" ? 3 : 5} 回合，每回合先在小组频道交流一轮，然后每人秘密投入 0–4 点能量维持救生艇的引擎。`,
       "全组投入总量必须 ≥ 阈值（人数 × 2）。有任意一回合不达标 → 救生艇沉没，全员删除。",
       "每回合结束后公开每个人的投入。救生艇撑到最后，每人剩余的能量折算为 Uptime（每 4 点 +1）。",
       "通关条件：救生艇撑过所有回合。",
@@ -37,7 +37,7 @@ export const club8: TrialDef<LifeboatState> = {
     return {
       ids: players.map((p) => p.id),
       names: Object.fromEntries(players.map((p) => [p.id, p.name])),
-      energy: Object.fromEntries(players.map((p) => [p.id, 12])),
+      energy: Object.fromEntries(players.map((p) => [p.id, 10])),
       invested: Object.fromEntries(players.map((p) => [p.id, 0])),
       threshold: players.length * 2,
       round: 1,
