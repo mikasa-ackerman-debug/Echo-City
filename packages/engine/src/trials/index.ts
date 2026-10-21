@@ -41,3 +41,7 @@ export function rankWindow(night: number): [number, number] {
 }
 
 export { diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker };
+export { generatePuzzle, solvePuzzle } from "./diamond-3";
+export { scoreGuess } from "./diamond-6";
+export { resolveBeautyRound, BEAUTY_RULES } from "./diamond-K";
+export { houndTarget } from "./spade-5";
