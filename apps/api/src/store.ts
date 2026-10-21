@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostProfile, LineageEntry } from "@echo/protocol";
 import type { CycleEvent, CycleState, CycleSummary } from "@echo/engine";
@@ -49,6 +49,7 @@ export interface AgentRec {
   bot?: { persona: string };
   returned?: boolean;
   humanity?: number;
+  generation?: number;
   status: "registered" | "alive" | "deleted" | "ascended" | "returned" | "archived";
   createdAt: string;
 }
@@ -139,8 +140,7 @@ export class Store {
     this.flushTimer = null;
     if (!this.dir) return;
     const f = join(this.dir, "db.json");
-    writeFileSync(f + ".tmp", JSON.stringify(this.db, null, 1));
-    renameSync(f + ".tmp", f);
+    atomicWrite(f, JSON.stringify(this.db, null, 1));
   }
 
   /* events */
@@ -156,6 +156,11 @@ export class Store {
     const cached = this.memEvents.get(cycleId);
     if (cached) return cached;
     if (!this.dir) return [];
+    const checkpoint = join(this.dir, "states", `${safe(cycleId)}.checkpoint.json`);
+    if (existsSync(checkpoint)) {
+      const list = JSON.parse(readFileSync(checkpoint, "utf8")).events as CycleEvent[];
+      this.memEvents.set(cycleId, list); return list;
+    }
     const f = join(this.dir, "events", `${safe(cycleId)}.ndjson`);
     const list = existsSync(f)
       ? readFileSync(f, "utf8")
@@ -174,6 +179,24 @@ export class Store {
     if (this.dir) writeFileSync(join(this.dir, "events", `${safe(cycleId)}.ndjson`), list.map((e) => JSON.stringify(e)).join("\n") + (list.length ? "\n" : ""));
   }
 
+  /** Atomic state + full event-prefix checkpoint; authoritative on recovery.
+   * Existing NDJSON/state files remain supported for legacy checkpoints. */
+  private deathTimes = new Map<string, Record<string, string>>();
+  checkpoint(state: CycleState, events: CycleEvent[], now = new Date().toISOString()) {
+    const list = [...this.events(state.id), ...events];
+    const deathTimes = { ...this.deathTimes.get(state.id) };
+    for (const id of state.order) if (state.agents[id].deletion && !deathTimes[id]) deathTimes[id] = now;
+    if (this.dir) {
+      const f = join(this.dir, "states", `${safe(state.id)}.checkpoint.json`);
+      atomicWrite(f, JSON.stringify({ state, events: list, deathTimes }));
+    }
+    this.deathTimes.set(state.id, deathTimes);
+    this.memEvents.set(state.id, list);
+    this.memStates.set(state.id, structuredClone(state));
+  }
+
+  deathTime(cycleId: string, agentId: string): string | undefined { return this.deathTimes.get(cycleId)?.[agentId]; }
+
   /* engine state snapshots */
   private memStates = new Map<string, CycleState>();
   saveState(state: CycleState) {
@@ -188,6 +211,12 @@ export class Store {
 
   loadState(cycleId: string): CycleState | null {
     if (!this.dir) return this.memStates.get(cycleId) ?? null;
+    const checkpoint = join(this.dir, "states", `${safe(cycleId)}.checkpoint.json`);
+    if (existsSync(checkpoint)) {
+      const saved = JSON.parse(readFileSync(checkpoint, "utf8"));
+      this.deathTimes.set(cycleId, saved.deathTimes ?? {});
+      return saved.state as CycleState;
+    }
     const f = join(this.dir, "states", `${safe(cycleId)}.json`);
     return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as CycleState) : null;
   }
@@ -208,5 +237,15 @@ export class Store {
 }
 
 function safe(id: string) {
-  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error("Invalid cycle storage identifier");
+  return id;
+}
+
+function atomicWrite(path: string, data: string) {
+  const temporary = path + ".tmp";
+  const fd = openSync(temporary, "w", 0o600);
+  try { writeFileSync(fd, data); fsyncSync(fd); } finally { closeSync(fd); }
+  renameSync(temporary, path);
+  const directory = openSync(join(path, ".."), "r");
+  try { fsyncSync(directory); } finally { closeSync(directory); }
 }

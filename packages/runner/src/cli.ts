@@ -54,6 +54,7 @@ async function main() {
   const { roster, drivers } = botRoster(n, personas?.length ? personas : undefined);
   const all: Record<string, AgentDriver> = { ...drivers };
 
+  const allowHttp = process.env.NODE_ENV !== "production" && process.env.ECHO_ALLOW_HTTP_WEBHOOK === "1";
   const llmCount = Number(values.llm) || 0;
   if (llmCount > 0) {
     const baseUrl = process.env.ECHO_LLM_BASE_URL;
@@ -62,13 +63,13 @@ async function main() {
     if (!baseUrl || !apiKey || !model) throw new Error("--llm 需要设置 ECHO_LLM_BASE_URL、ECHO_LLM_API_KEY、ECHO_LLM_MODEL");
     const strategy = STRATEGY_TEMPLATES[values.strategy!]?.text ?? values.strategy!;
     for (const r of roster.slice(0, llmCount)) {
-      all[r.id] = new LlmAgent({ baseUrl, apiKey, model, strategy });
+      all[r.id] = new LlmAgent({ baseUrl, apiKey, model, strategy, allowHttp });
       r.kind = `hosted:${model}`;
     }
   }
   if (values.webhook) {
     const secret = process.env.ECHO_WEBHOOK_SECRET ?? "dev-secret";
-    all[roster[0].id] = new WebhookAgent({ url: values.webhook, secret });
+    all[roster[0].id] = new WebhookAgent({ url: values.webhook, secret, allowHttp });
     roster[0].kind = "webhook";
   }
   const usesRemote = llmCount > 0 || !!values.webhook;

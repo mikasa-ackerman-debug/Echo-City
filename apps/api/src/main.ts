@@ -34,7 +34,7 @@ const { server, manager, store } = createApp({
   timeoutScale: Number(env.ECHO_TIMEOUT_SCALE ?? (mode === "fast" ? 0.2 : 1)),
   whisperWindowMs: Number(env.ECHO_WHISPER_MS ?? (mode === "fast" ? 3000 : 90000)),
   fastStepDelayMs: Number(env.ECHO_STEP_DELAY_MS ?? 250),
-  allowInsecureWebhooks: env.ECHO_ALLOW_HTTP_WEBHOOK === "1" || !prod,
+  allowInsecureWebhooks: !prod && env.ECHO_ALLOW_HTTP_WEBHOOK === "1",
 });
 
 manager.resumeAll();
@@ -54,7 +54,8 @@ function tick() {
         manager.start(open.id);
         console.log(`[scheduler] 轮回开始：${open.id}`);
       } catch (e) {
-        console.warn(`[scheduler] 无法开始 ${open.id}: ${(e as Error).message}`);
+        if (manager.skipFailedScheduledStart(open.id, e)) console.warn(`[scheduler] 跳过无效轮回 ${open.id}: ${(e as Error).message}`);
+        else console.warn(`[scheduler] 无法开始 ${open.id}: ${(e as Error).message}`);
       }
     }
   }

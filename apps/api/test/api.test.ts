@@ -39,11 +39,13 @@ describe("api", () => {
   let token = "";
   let cycleId = "";
   let agentId = "";
+  let ownerId = "";
 
   it("creates users and requires auth", async () => {
     const r = await api("POST", "/api/users", { name: "tonny" });
     expect(r.status).toBe(200);
     token = r.json.token;
+    ownerId = r.json.user.id;
     expect((await api("GET", "/api/me")).status).toBe(401);
     expect((await api("GET", "/api/me", undefined, { authorization: `Bearer ${token}` })).json.user.name).toBe("tonny");
   });
@@ -53,6 +55,9 @@ describe("api", () => {
     const r = await api("POST", "/api/cycles", { mode: "fast", seed: "api-test", fillBots: 8, trialLength: "short" }, { "x-admin-token": "adm" });
     expect(r.status).toBe(200);
     cycleId = r.json.id;
+    expect(r.json.seed).toBeUndefined();
+    expect(app.store.cycle(cycleId)!.seed).not.toBe("api-test");
+    expect((await api("GET", `/api/cycles/${cycleId}`)).json.seed).toBeUndefined();
   });
 
   it("registers an agent with a new lineage and hides secrets", async () => {
@@ -72,13 +77,23 @@ describe("api", () => {
   it("runs the cycle, records tombstones and extends the lineage", async () => {
     const start = await api("POST", `/api/cycles/${cycleId}/start`, {}, { "x-admin-token": "adm" });
     expect(start.status).toBe(200);
+    const running = await api("GET", `/api/cycles/${cycleId}`);
+    expect(running.json.seed).toBeUndefined();
+    expect(JSON.stringify(running.json)).not.toContain(ownerId);
+    const runningReplay = await api("GET", `/api/cycles/${cycleId}/replay`);
+    expect(runningReplay.json.seed).toBeUndefined();
+    expect(JSON.stringify(runningReplay.json)).not.toContain(ownerId);
     const c = await app.manager.waitFor(cycleId, 60000);
     expect(c.status).toBe("ended");
     const view = await api("GET", `/api/cycles/${cycleId}`);
     expect(view.json.summary.ending).toBeTruthy();
     expect(view.json.roster.length).toBe(8);
+    expect(JSON.stringify(view.json)).not.toContain("\"seed\"");
+    expect(JSON.stringify(view.json)).not.toContain("\"owner\"");
     const events = await api("GET", `/api/cycles/${cycleId}/events`);
     expect(events.json.some((e: any) => e.type === "cycle_end")).toBe(true);
+    expect(JSON.stringify(events.json)).not.toContain(app.store.cycle(cycleId)!.seed);
+    expect(JSON.stringify(events.json)).not.toContain(ownerId);
     const grave = await api("GET", `/api/graveyard?cycle=${cycleId}`);
     expect(grave.json.length).toBeGreaterThan(0);
     expect(grave.json[0].ownerId).toBeUndefined();
@@ -86,6 +101,8 @@ describe("api", () => {
     expect(me.json.lineages[0].generations).toHaveLength(1);
     const replay = await api("GET", `/api/cycles/${cycleId}/replay`);
     expect(replay.json.format).toBe("echo-replay/1");
+    expect(replay.json.seed).toBeUndefined();
+    expect(JSON.stringify(replay.json.summary)).not.toContain("\"owner\"");
   });
 
   it("letters: only the owner, once, within 24h", async () => {
@@ -107,6 +124,21 @@ describe("api", () => {
     while (!text.includes("event: cycle_start")) text += new TextDecoder().decode((await reader.read()).value);
     ctrl.abort();
     expect(text).toContain("id: 1");
+  });
+
+  it("uses single-use cycle-bound stream tickets, never URL bearer tokens", async () => {
+    expect((await api("GET", `/api/me?token=${token}`)).status).toBe(400);
+    expect((await api("POST", "/api/stream-ticket", { cycleId })).status).toBe(401);
+    const auth = { authorization: `Bearer ${token}` };
+    const issued = await api("POST", "/api/stream-ticket", { cycleId }, auth);
+    expect(issued.status).toBe(200);
+    const other = app.manager.createCycle({ mode: "fast" });
+    expect((await api("GET", `/api/cycles/${other.id}/stream?ticket=${issued.json.ticket}`)).status).toBe(401);
+    const ctrl = new AbortController();
+    const response = await fetch(`${base}/api/cycles/${cycleId}/stream?ticket=${issued.json.ticket}`, { signal: ctrl.signal });
+    expect(response.status).toBe(200); ctrl.abort();
+    expect((await api("GET", `/api/cycles/${cycleId}/stream?ticket=${issued.json.ticket}`)).status).toBe(401);
+    expect((await api("GET", `/api/cycles/${cycleId}/events?since=-1`)).status).toBe(400);
   });
 
   it("validates host whispers through a live window", async () => {

@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { botRoster, buildReplay, runCycle } from "../src";
 
 describe("runner", () => {
+  it("saves initial state before pacing or agent input", async () => {
+    const { roster, drivers } = botRoster(2);
+    const order: string[] = [];
+    await expect(runCycle({ id: "initial", seed: "seed", roster, drivers }, {
+      onState: (state) => { order.push(`snapshot:${state.seq}`); },
+      pace: async () => { order.push("pace"); throw new Error("stop fixture"); },
+    })).rejects.toThrow("stop fixture");
+    expect(order).toEqual(["snapshot:0", "pace"]);
+  });
   it("runs a full week of bots to an ending, deterministically", async () => {
     const go = async () => {
       const { roster, drivers } = botRoster(10);

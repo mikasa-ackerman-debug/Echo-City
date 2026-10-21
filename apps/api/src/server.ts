@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { hashToken, newId, newToken, safeEqual, Sealer } from "./crypto";
-import { ApiError, CycleManager, publicAgent, publicTombstone, type ManagerOptions } from "./manager";
+import { ApiError, CycleManager, publicAgent, publicTombstone, publicData, type ManagerOptions } from "./manager";
 import { Store, type UserRec } from "./store";
 import { sanitizeText } from "@echo/protocol";
 
@@ -31,6 +31,14 @@ interface Route {
 }
 
 export function createApp(opts: AppOptions) {
+  if (process.env.NODE_ENV === "production" && (opts.adminToken.length < 32 || opts.secretKey.length < 32 || opts.allowInsecureWebhooks || !opts.corsOrigin || opts.corsOrigin === "*"))
+    throw new Error("Production requires strong admin/encryption keys, explicit CORS origin and HTTPS-only agents");
+  for (const [key, value] of Object.entries({ timeoutScale: opts.timeoutScale, whisperWindowMs: opts.whisperWindowMs, fastStepDelayMs: opts.fastStepDelayMs }))
+    if (value !== undefined && (!Number.isFinite(value) || value < 0 || (key === "timeoutScale" && value === 0))) throw new Error(`Invalid ${key}`);
+  const ticketNow = () => opts.now?.().getTime() ?? Date.now();
+  const tickets = new Map<string, { userId: string; cycleId: string; expires: number }>();
+  const rates = new Map<string, { count: number; until: number }>();
+  let streams = 0;
   const store = new Store(opts.dataDir);
   const manager = new CycleManager(store, {
     timeoutScale: opts.timeoutScale ?? 1,
@@ -57,7 +65,7 @@ export function createApp(opts: AppOptions) {
     const token = newToken();
     const user: UserRec = { id: newId("u"), name, tokenHash: hashToken(token), createdAt: new Date().toISOString() };
     store.db.users.push(user);
-    store.save();
+    store.flush();
     return { user: { id: user.id, name: user.name }, token };
   });
   route("GET", "/api/me", ({ user }) => {
@@ -75,10 +83,10 @@ export function createApp(opts: AppOptions) {
     if (!c) throw new ApiError(404, "轮回不存在");
     const agents = store.db.agents.filter((a) => a.cycleId === c.id);
     return {
-      ...c,
+      ...publicData(c),
       roster: agents.map((a) => {
         const lin = store.lineage(a.lineageId);
-        return { id: a.id, name: a.name, mode: a.mode, status: a.status, returned: !!a.returned, host: lin?.host.name, generation: (lin?.generations.length ?? 0) + (a.status === "registered" ? 1 : 0) };
+        return { id: a.id, name: a.name, mode: a.mode, status: a.status, returned: !!a.returned, host: lin?.host.name, generation: a.generation ?? lin?.generations.find((g) => g.agentId === a.id)?.generation ?? ((lin?.generations.at(-1)?.generation ?? 0) + (a.returned ? 0 : 1)) };
       }),
       live: c.status === "running" ? manager.liveSnapshot(c.id) : null,
       whisper: manager.whisperWindow(c.id),
@@ -91,31 +99,54 @@ export function createApp(opts: AppOptions) {
     return cycleView(c.id);
   });
   route("GET", "/api/cycles/:id", ({ params }) => cycleView(params.id));
-  route("POST", "/api/cycles", ({ body }) => manager.createCycle(body ?? {}), "admin");
-  route("POST", "/api/cycles/:id/start", ({ params }) => manager.start(params.id), "admin");
+  route("POST", "/api/cycles", ({ body }) => publicData(manager.createCycle(body ?? {})), "admin");
+  route("POST", "/api/cycles/:id/start", ({ params }) => publicData(manager.start(params.id)), "admin");
   route("GET", "/api/cycles/:id/events", ({ params, query, user }) => {
     if (!store.cycle(params.id)) throw new ApiError(404, "轮回不存在");
-    return manager.visibleEvents(params.id, user, Number(query.get("since") ?? 0) || 0);
+    return publicData(manager.visibleEvents(params.id, user, parseCursor(query.get("since"))));
   });
   route("GET", "/api/cycles/:id/replay", ({ params, user }) => manager.replay(params.id, user));
+  route("POST", "/api/stream-ticket", ({ body, user }) => {
+    const cycleId = String(body?.cycleId ?? "");
+    if (!store.cycle(cycleId)) throw new ApiError(404, "轮回不存在");
+    const now = ticketNow();
+    for (const [token, t] of tickets) if (t.expires <= now) tickets.delete(token);
+    if (tickets.size >= 4096) throw new ApiError(429, "Too many stream tickets");
+    const ticket = newToken(); const expires = now + 60000;
+    tickets.set(hashToken(ticket), { userId: user!.id, cycleId, expires });
+    return { ticket, expiresAt: new Date(expires).toISOString() };
+  }, "user");
   route("GET", "/api/cycles/:id/stream", ({ params, req, res, query, user }) => {
     if (!store.cycle(params.id)) throw new ApiError(404, "轮回不存在");
-    res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
-    res.write(": echo-city stream\n\n");
-    const since = Number(query.get("since") ?? req.headers["last-event-id"] ?? 0) || 0;
-    const unsub = manager.subscribe(
-      params.id,
-      user,
-      (events) => {
-        for (const e of events) res.write(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
-      },
-      since,
-    );
-    const ping = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 15000);
-    req.on("close", () => {
-      clearInterval(ping);
-      unsub();
+    if (streams >= 256) throw new ApiError(429, "Too many streams");
+    const since = parseCursor(query.get("since") ?? req.headers["last-event-id"]);
+    streams++;
+    let closed = false; let unsub = () => {}; let ping: NodeJS.Timeout | undefined;
+    const cleanup = () => { if (closed) return; closed = true; streams--; if (ping) clearInterval(ping); unsub(); };
+    let blocked = false; let queuedBytes = 0; const queue: string[] = [];
+    const write = (text: string) => {
+      if (closed) return;
+      if (blocked) {
+        queuedBytes += Buffer.byteLength(text);
+        if (queuedBytes > 2 * 1024 * 1024) { cleanup(); res.destroy(); return; }
+        queue.push(text); return;
+      }
+      blocked = !res.write(text);
+    };
+    res.on("drain", () => {
+      blocked = false;
+      while (!closed && !blocked && queue.length) {
+        const text = queue.shift()!; queuedBytes -= Buffer.byteLength(text); write(text);
+      }
     });
+    req.once("close", cleanup); res.once("error", cleanup);
+    res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
+    write(": echo-city stream\n\n");
+    unsub = manager.subscribe(params.id, user, (events) => {
+      for (const e of events) write(`id: ${e.deliveryCursor}\nevent: ${e.type}\ndata: ${JSON.stringify(publicData(e))}\n\n`);
+    }, since);
+    if (closed) unsub();
+    else ping = setInterval(() => write(`: ping ${Date.now()}\n\n`), 15000);
     return STREAM;
   });
   route("GET", "/api/cycles/:id/whisper", ({ params, user }) => manager.whisperWindow(params.id, user), "user");
@@ -149,7 +180,7 @@ export function createApp(opts: AppOptions) {
   /* ---------------- dispatch ---------------- */
   const authUser = (req: IncomingMessage, query: URLSearchParams): UserRec | undefined => {
     const h = req.headers.authorization;
-    const token = h?.startsWith("Bearer ") ? h.slice(7) : query.get("token");
+    const token = h?.startsWith("Bearer ") ? h.slice(7) : undefined;
     if (!token) return undefined;
     const hash = hashToken(token);
     return store.db.users.find((u) => u.tokenHash === hash);
@@ -167,7 +198,25 @@ export function createApp(opts: AppOptions) {
       if (!r) throw new ApiError(404, "not found");
       const m = url.pathname.match(r.pattern)!;
       const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
-      const user = authUser(req, url.searchParams);
+      let user = authUser(req, url.searchParams);
+      if (url.searchParams.has("token")) throw new ApiError(400, "Long-lived tokens in URLs are forbidden; use stream-ticket");
+      if (url.pathname.endsWith("/stream") && url.searchParams.has("ticket")) {
+        const hash = hashToken(url.searchParams.get("ticket")!); const ticket = tickets.get(hash);
+        if (!ticket || ticket.expires <= ticketNow() || ticket.cycleId !== params.id) throw new ApiError(401, "Invalid or expired stream ticket");
+        tickets.delete(hash); user = store.user(ticket.userId);
+        if (!user) throw new ApiError(401, "Invalid stream user");
+      }
+      const now = Date.now();
+      const key = user?.id ?? req.socket.remoteAddress ?? "unknown";
+      let rate = rates.get(key);
+      if (!rate || rate.until <= now) {
+        if (rates.size >= 10000) for (const [id, value] of rates) if (value.until <= now) rates.delete(id);
+        if (rates.size >= 10000 && !rates.has(key)) throw new ApiError(429, "Rate limiter capacity exceeded");
+        rates.set(key, rate = { count: 0, until: now + 60000 });
+      }
+      const cost = req.method === "POST" ? 10 : 1;
+      rate.count += cost;
+      if (rate.count > 1200) { res.setHeader("retry-after", Math.ceil((rate.until - now) / 1000)); throw new ApiError(429, "Too many requests"); }
       const adminHeader = String(req.headers["x-admin-token"] ?? "");
       const admin = !!opts.adminToken && !!adminHeader && safeEqual(adminHeader, opts.adminToken);
       if (r.auth === "user" && !user) throw new ApiError(401, "需要登录（Authorization: Bearer <token>）");
@@ -185,6 +234,9 @@ export function createApp(opts: AppOptions) {
     }
   });
 
+  server.requestTimeout = 15000;
+  server.headersTimeout = 10000;
+  server.maxHeadersCount = 64;
   return { server, store, manager };
 }
 
@@ -210,4 +262,11 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   } catch {
     throw new ApiError(400, "JSON 无效");
   }
+}
+
+function parseCursor(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === "") return 0;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) throw new ApiError(400, "Invalid delivery cursor");
+  return value;
 }

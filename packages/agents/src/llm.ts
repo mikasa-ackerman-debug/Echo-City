@@ -1,4 +1,5 @@
 import { extractJsonObject, type AgentResponse, type Observation } from "@echo/protocol";
+import { injectedText, networkText } from "./network";
 import type { AgentDriver } from "./driver";
 import { systemPrompt, userPrompt } from "./prompt";
 
@@ -13,6 +14,8 @@ export interface LlmConfig {
   /** Use response_format: json_object (most OpenAI-compatible servers support it). */
   jsonMode?: boolean;
   fetchImpl?: typeof fetch;
+  allowHttp?: boolean;
+  timeoutMs?: number;
 }
 
 export interface LlmUsage {
@@ -54,7 +57,6 @@ export class LlmAgent implements AgentDriver {
   }
 
   private async complete(messages: Array<{ role: string; content: string }>, signal?: AbortSignal): Promise<string> {
-    const f = this.cfg.fetchImpl ?? fetch;
     const body: Record<string, unknown> = {
       model: this.cfg.model,
       messages,
@@ -62,14 +64,19 @@ export class LlmAgent implements AgentDriver {
       max_tokens: this.cfg.maxTokens ?? 800,
     };
     if (this.cfg.jsonMode !== false) body.response_format = { type: "json_object" };
-    const res = await f(`${this.cfg.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    const url = `${this.cfg.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const init: RequestInit = {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.apiKey}` },
       body: JSON.stringify(body),
       signal,
-    });
-    if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const json = (await res.json()) as {
+      redirect: "error",
+    };
+    const res = this.cfg.fetchImpl
+      ? await injectedText(this.cfg.fetchImpl, url, init, 256 * 1024)
+      : await networkText(url, init, { allowHttp: this.cfg.allowHttp, maxBytes: 256 * 1024, timeoutMs: this.cfg.timeoutMs });
+    if (res.status < 200 || res.status >= 300) throw new Error(`LLM HTTP ${res.status}`);
+    const json = JSON.parse(res.text) as {
       choices?: Array<{ message?: { content?: string } }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };

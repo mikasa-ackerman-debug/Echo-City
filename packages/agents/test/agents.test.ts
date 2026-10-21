@@ -79,7 +79,7 @@ describe("WebhookAgent", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     const { port } = server.address() as AddressInfo;
     const { obs } = firstObservation();
-    const res = await new WebhookAgent({ url: `http://127.0.0.1:${port}/`, secret }).decide(obs);
+    const res = await new WebhookAgent({ url: `http://127.0.0.1:${port}/`, secret, allowHttp: true }).decide(obs);
     server.close();
     expect(verified).toBe(true);
     expect(res?.action.type).toBe("rest");

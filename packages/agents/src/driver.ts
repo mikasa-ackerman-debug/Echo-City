@@ -26,20 +26,15 @@ export function seededRandom(seed: string): () => number {
 
 export function withTimeout<T>(p: Promise<T>, ms: number, signal?: AbortSignal): Promise<T | null> {
   return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(null), ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(t);
-      resolve(null);
-    });
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      () => {
-        clearTimeout(t);
-        resolve(null);
-      },
-    );
+    let done = false;
+    const finish = (value: T | null) => {
+      if (done) return; done = true;
+      clearTimeout(timer); signal?.removeEventListener("abort", onAbort); resolve(value);
+    };
+    const onAbort = () => finish(null);
+    const timer = setTimeout(() => finish(null), ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) finish(null);
+    p.then((value) => finish(value), () => finish(null));
   });
 }

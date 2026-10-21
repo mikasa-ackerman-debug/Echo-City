@@ -1,11 +1,14 @@
 import { PROTOCOL_VERSION, type AgentResponse, type Observation } from "@echo/protocol";
 import { HEADER_DEADLINE, HEADER_PROTOCOL, HEADER_REQUEST_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP, signPayload } from "@echo/protocol/signing";
+import { injectedText, networkText } from "./network";
 import type { AgentDriver } from "./driver";
 
 export interface WebhookConfig {
   url: string;
   secret: string;
   fetchImpl?: typeof fetch;
+  allowHttp?: boolean;
+  timeoutMs?: number;
 }
 
 /**
@@ -22,9 +25,8 @@ export class WebhookAgent implements AgentDriver {
   async decide(obs: Observation, signal?: AbortSignal): Promise<AgentResponse | null> {
     const body = JSON.stringify(obs);
     const ts = Date.now();
-    const f = this.cfg.fetchImpl ?? fetch;
     try {
-      const res = await f(this.cfg.url, {
+      const init: RequestInit = {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -37,17 +39,13 @@ export class WebhookAgent implements AgentDriver {
         body,
         signal,
         redirect: "error",
-      });
-      if (!res.ok) {
-        this.lastError = `HTTP ${res.status}`;
-        return null;
-      }
-      const text = await res.text();
-      if (text.length > 64 * 1024) {
-        this.lastError = "response too large";
-        return null;
-      }
-      return JSON.parse(text) as AgentResponse;
+      };
+      const res = this.cfg.fetchImpl
+        ? await injectedText(this.cfg.fetchImpl, this.cfg.url, init, 64 * 1024)
+        : await networkText(this.cfg.url, init, { allowHttp: this.cfg.allowHttp, timeoutMs: this.cfg.timeoutMs });
+      if (res.status < 200 || res.status >= 300) { this.lastError = `HTTP ${res.status}`; return null; }
+      this.lastError = null;
+      return JSON.parse(res.text) as AgentResponse;
     } catch (err) {
       this.lastError = (err as Error).message;
       return null;

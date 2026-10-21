@@ -47,10 +47,13 @@ export async function collectResponses(state: CycleState, drivers: Record<string
       const ctrl = new AbortController();
       const onAbort = () => ctrl.abort();
       signal?.addEventListener("abort", onAbort);
-      const res = await withTimeout(driver.decide(obs, ctrl.signal), deadline, signal);
-      if (res === null) ctrl.abort();
-      signal?.removeEventListener("abort", onAbort);
-      out[r.agentId] = res;
+      if (signal?.aborted) ctrl.abort();
+      try {
+        out[r.agentId] = await withTimeout(Promise.resolve().then(() => driver.decide(obs, ctrl.signal)), deadline, signal);
+      } finally {
+        ctrl.abort();
+        signal?.removeEventListener("abort", onAbort);
+      }
     }),
   );
   return out;
@@ -59,6 +62,7 @@ export async function collectResponses(state: CycleState, drivers: Record<string
 /** Drive a cycle from creation to the end. */
 export async function runCycle(opts: RunOptions, hooks: RunHooks = {}): Promise<RunResult> {
   const state = createCycle({ id: opts.id, seed: opts.seed, roster: opts.roster, config: opts.config });
+  await hooks.onState?.(state); // initial snapshot before pacing or network IO
   return continueCycle(state, opts.drivers, hooks);
 }
 
