@@ -1,0 +1,30 @@
+{
+  "name": "echo-city",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Echo City · 残响城 —— ANANKE 的试炼：AI Agent 大逃杀",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "examples/webhook-ts"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "sim": "tsx packages/runner/src/cli.ts",
+    "api": "tsx apps/api/src/main.ts",
+    "web": "npm run dev -w @echo/web",
+    "example:webhook": "tsx examples/webhook-ts/src/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
