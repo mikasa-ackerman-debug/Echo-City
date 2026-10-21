@@ -96,6 +96,8 @@ export interface LineageEntry {
   night?: number;
   card?: string;
   last_words?: string;
+  /** The player's letter to the next generation (GDD 4.3). */
+  letter?: string;
 }
 
 export interface LineageInfo {

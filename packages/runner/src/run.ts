@@ -13,6 +13,8 @@ export interface RunHooks {
   /** Multiply engine timeouts (e.g. 0.01 for bot sims). */
   timeoutScale?: number;
   signal?: AbortSignal;
+  /** Awaited before every engine advance; use it to pace a live cycle to the wall clock. */
+  pace?: (state: CycleState, moment: "before_input" | "before_advance") => Promise<void>;
 }
 
 export interface RunOptions {
@@ -56,7 +58,7 @@ export async function collectResponses(state: CycleState, drivers: Record<string
 
 /** Drive a cycle from creation to the end. */
 export async function runCycle(opts: RunOptions, hooks: RunHooks = {}): Promise<RunResult> {
-  let state = createCycle({ id: opts.id, seed: opts.seed, roster: opts.roster, config: opts.config });
+  const state = createCycle({ id: opts.id, seed: opts.seed, roster: opts.roster, config: opts.config });
   return continueCycle(state, opts.drivers, hooks);
 }
 
@@ -64,9 +66,13 @@ export async function continueCycle(initial: CycleState, drivers: Record<string,
   let state = initial;
   const all: CycleEvent[] = [];
   let steps = 0;
-  let input: Parameters<typeof advance>[1] = {};
+  if (state.stage === "ended") return { state, events: all, steps };
+  // Resuming a state that is already waiting: collect input before advancing.
+  await hooks.pace?.(state, "before_input");
+  let input: Parameters<typeof advance>[1] = await gather(state, drivers, hooks);
   while (true) {
     if (hooks.signal?.aborted) throw new Error("aborted");
+    await hooks.pace?.(state, "before_advance");
     const r = advance(state, input);
     state = r.state;
     all.push(...r.events);
@@ -74,12 +80,17 @@ export async function continueCycle(initial: CycleState, drivers: Record<string,
     if (r.events.length) await hooks.onEvents?.(r.events, state);
     await hooks.onState?.(state);
     if (state.waiting.kind === "done") break;
-    if (state.waiting.kind === "host") {
-      const whispers = hooks.whispers ? await hooks.whispers(state, state.waiting.agents) : {};
-      input = { whispers };
-    } else {
-      input = { responses: await collectResponses(state, drivers, hooks.timeoutScale ?? 1, hooks.signal) };
-    }
+    await hooks.pace?.(state, "before_input");
+    input = await gather(state, drivers, hooks);
   }
   return { state, events: all, steps };
+}
+
+async function gather(state: CycleState, drivers: Record<string, AgentDriver>, hooks: RunHooks): Promise<Parameters<typeof advance>[1]> {
+  if (state.waiting.kind === "host") {
+    const whispers = hooks.whispers ? await hooks.whispers(state, state.waiting.agents) : {};
+    return { whispers };
+  }
+  if (state.waiting.kind === "agents") return { responses: await collectResponses(state, drivers, hooks.timeoutScale ?? 1, hooks.signal) };
+  return {};
 }
