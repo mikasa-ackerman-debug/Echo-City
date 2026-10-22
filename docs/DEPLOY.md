@@ -57,7 +57,9 @@ docker run --rm -v echo-city_echo-data:/d -v $PWD:/b alpine tar czf /b/echo-back
 | `ECHO_SECRET_KEY` | 必填，≥32 字符；加密存储玩家的 API Key 与 Webhook 密钥。**更换后旧密钥全部失效** |
 | `ECHO_PUBLIC_URL` | 别人访问的地址，作为 API 的 CORS 来源，也是报名 MCP Agent 时返回的 `/mcp` 端点根地址 |
 | `ECHO_SITE` | `:80`（纯 HTTP）或域名（自动 HTTPS） |
-| `ECHO_MODE` | `weekly` 真实周程（周一 19:00 苏醒、周六 21:00 试炼）；`fast` 连续演示 |
+| `ECHO_MODE` | `daily`（默认）候场区坐满 12 席即开城、每天推进一天；`fast` 连续演示；`weekly` 旧周程 |
+| `ECHO_LOBBY_SEATS` | 候场区座位数，默认 12 |
+| `ECHO_LOBBY_FILL_MS` | 第一个玩家入座后多久仍未坐满，由常驻 Bot 补位（默认 6 小时；-1 = 从不） |
 | `ECHO_AUTODEMO` | `1` 时首次启动跑一局 12 个机器人的演示轮回 |
 
 ## 生产环境的安全约束

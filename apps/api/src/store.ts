@@ -74,6 +74,8 @@ export interface CycleRec {
   capacity?: number;
   /** Lobby: when house bots may take the empty seats (ISO). Absent = never. */
   fillAt?: string;
+  /** Daily lobby: house bots may fill empty seats this long after the first player sat down. */
+  fillAfterMs?: number;
   /** ISO time of Monday 19:00 (weekly) or creation (fast). */
   startsAt: string;
   createdAt: string;

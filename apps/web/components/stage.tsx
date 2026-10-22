@@ -1,6 +1,6 @@
 "use client";
 import type { CycleEvent } from "@echo/engine";
-import { BANK_TRIAL_IDS, getTrial } from "@echo/engine";
+import { TRIALS, getTrial } from "@echo/engine";
 import { useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { list, num, numMap, pos, rec, recs, str, strMap, strs } from "@/lib/ev";
@@ -101,7 +101,7 @@ function StageBody(p: StageProps & { focus?: CycleEvent }) {
   if (t === "spade-5") return <Hound {...p} ev={last} />;
   if (t === "diamond-6") return <Corridor venue={venue} upto={last} />;
   if (t === "diamond-3") return <Elevator venue={venue} />;
-  if (BANK_TRIAL_IDS.includes(t)) return <Bank venue={venue} upto={last} />;
+  if (TRIALS[t] && "bank" in TRIALS[t]) return <Bank venue={venue} upto={last} />;
   if (t === "heart-7") return <Dinner venue={venue} ev={last} />;
   if (t === "joker") return <Joker venue={venue} />;
   return <Table {...p} />;
@@ -299,11 +299,12 @@ function Bank({ venue, upto }: { venue: VenueLite; upto?: CycleEvent }) {
   const tasks = seen.filter((e) => e.type === "bank_task");
   const answers = seen.filter((e) => e.type === "bank_answer");
   const shared = tasks.find((e) => e.data.agent === null);
-  const taskOf = (n: string) => shared ?? tasks.find((e) => str(e.data.agent) === n);
-  const fam = (e?: CycleEvent) => (e ? `${str(e.data.title)} · L${e.data.level}` : "…");
+  const taskOf = (n: string) => shared ?? tasks.filter((e) => str(e.data.agent) === n).at(-1);
+  const fam = (e?: CycleEvent) => (e ? `${Number(e.data.stages) > 1 && e !== shared ? `${e.data.stage}/${e.data.stages} · ` : ""}${str(e.data.title)} · L${e.data.level}` : "…");
   return (
     <div>
-      {shared && <p className="data grey bank-shared">全场共用一道题 · {fam(shared)}</p>}
+      {venue.gatekeeper && <p className="data bank-shared">守门人 · {venue.gatekeeper}</p>}
+      {shared && <p className="data grey bank-shared">全场共用一道题{Number(shared.data.stages) > 1 ? ` · 第 ${shared.data.stage}/${shared.data.stages} 题` : ""} · {fam(shared)}</p>}
       <div className="seats">
         {venue.players.map((n) => {
           const mineA = answers.filter((a) => str(a.data.agent) === n);

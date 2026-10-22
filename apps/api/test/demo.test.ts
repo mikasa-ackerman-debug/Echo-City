@@ -88,4 +88,16 @@ describe("admin demo backdoor", () => {
     expect(state.agents[ids[0]].profile?.logic).toBeTypeOf("number");
     app.manager.stopAll();
   });
+
+  it("house bots only fill a lobby that has a real player, and never past its capacity", async () => {
+    const c = app.manager.createCycle({ mode: "daily", capacity: 4, fillBots: 12, fillAfterMs: 0 });
+    expect(c.fillAt).toBeUndefined();
+    expect(app.manager.fillLobbyIfDue(c.id)).toBe(false); // empty lobby: nobody to keep company
+    const t = (await api("POST", "/api/users", { name: "solo" })).json.token;
+    expect((await api("POST", "/api/agents", { cycleId: c.id, name: "Solo", mode: "bot", bot: { persona: "gambler" }, host }, { authorization: `Bearer ${t}` })).status).toBe(200);
+    expect(app.store.cycle(c.id)!.fillAt).toBeTypeOf("string");
+    expect(app.manager.fillLobbyIfDue(c.id)).toBe(true);
+    expect(app.store.db.agents.filter((a) => a.cycleId === c.id)).toHaveLength(4);
+    app.manager.stopAll();
+  });
 });

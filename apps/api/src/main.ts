@@ -12,7 +12,7 @@ import { nextMonday1900 } from "./schedule";
  *   ECHO_MODE               daily (default: 候场区满 12 即开城，每天推进一天) | fast | weekly (legacy)
  *   ECHO_LOBBY_SEATS        lobby seats (default 12)
  *   ECHO_FILL_BOTS          house bots that may fill empty seats (default 12)
- *   ECHO_LOBBY_FILL_MS      after how long an unfilled lobby lets house bots in (default 6h; -1 = never)
+ *   ECHO_LOBBY_FILL_MS      how long after the first player sits down house bots may fill the rest (default 6h; -1 = never)
  *   ECHO_TIMEOUT_SCALE      multiplier on agent deadlines (fast default 0.2)
  *   ECHO_WHISPER_MS         host whisper window (weekly 90000, fast 3000)
  *   ECHO_STEP_DELAY_MS      fast mode delay between steps (default 250)

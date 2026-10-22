@@ -288,13 +288,13 @@ code { font-family: var(--mono); font-size: .92em; color: var(--paper); }
 .seat .bank-bar { margin-top: 6px; height: 2px; }
 
 /* ---------------- 候场区 seats ---------------- */
-.seats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
-.seat { display: flex; flex-direction: column; gap: 6px; min-height: 120px; padding: 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.seat.is-taken { background: rgba(255, 255, 255, 0.025); }
-.seat__name { font-size: 18px; color: var(--paper); overflow-wrap: anywhere; }
-.seat__empty { margin-top: auto; }
-@media (max-width: 1100px) { .seats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 760px) { .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.lobby-seats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.lobby-seat { display: flex; flex-direction: column; gap: 6px; min-height: 120px; padding: 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.lobby-seat.is-taken { background: rgba(255, 255, 255, 0.025); }
+.lobby-seat__name { font-size: 18px; color: var(--paper); overflow-wrap: anywhere; }
+.lobby-seat__empty { margin-top: auto; }
+@media (max-width: 1100px) { .lobby-seats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .lobby-seats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ---------------- ladder board ---------------- */
 .ladder-board { width: 100%; }

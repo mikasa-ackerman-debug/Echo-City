@@ -136,7 +136,8 @@ export class CycleManager {
       ...(mode === "daily"
         ? {
             capacity: Math.max(2, Math.min(96, Number.isFinite(input.capacity) ? Math.floor(input.capacity!) : LOBBY_SEATS)),
-            fillAt: input.fillAfterMs !== undefined && Number.isFinite(input.fillAfterMs) && input.fillAfterMs >= 0 ? new Date(this.now().getTime() + input.fillAfterMs).toISOString() : undefined,
+            // The fill timer starts when the first player sits down (see register), never on an empty lobby.
+            fillAfterMs: input.fillAfterMs !== undefined && Number.isFinite(input.fillAfterMs) && input.fillAfterMs >= 0 ? Math.floor(input.fillAfterMs) : undefined,
           }
         : {}),
     };
@@ -184,6 +185,8 @@ export class CycleManager {
     const c = this.store.cycle(cycleId);
     if (!c || c.mode !== "daily" || c.status !== "registering" || !c.fillAt) return false;
     if (this.now().getTime() < new Date(c.fillAt).getTime()) return false;
+    // House bots only keep real players company: a lobby of nobody never opens a city.
+    if (!this.store.db.agents.some((a) => a.cycleId === c.id && a.ownerId !== "system")) return false;
     c.fillBots = Math.max(c.fillBots, c.capacity ?? LOBBY_SEATS);
     c.startsAt = this.now().toISOString();
     this.start(c.id);
@@ -385,7 +388,8 @@ export class CycleManager {
     const personas = Object.keys(PERSONAS) as Persona[];
     const used = new Set(this.store.db.agents.filter((a) => a.cycleId === c.id).map((a) => a.name));
     let i = 0;
-    for (let k = have; k < c.fillBots; k++) {
+    const target = c.mode === "daily" ? Math.min(c.fillBots, c.capacity ?? LOBBY_SEATS) : c.fillBots;
+    for (let k = have; k < target; k++) {
       let name = BOT_NAMES[i % BOT_NAMES.length];
       while (used.has(name)) name = `${BOT_NAMES[i % BOT_NAMES.length]}-${++i}`;
       used.add(name);
@@ -506,7 +510,11 @@ export class CycleManager {
     if (!lin) rec.lineageId = this.createLineage(user, newHost!).id;
     this.store.db.agents.push(rec);
     this.store.flush();
-    // 候场区：the last free seat opens the city.
+    // 候场区：the first seat starts the bot-fill timer; the last free seat opens the city.
+    if (c.mode === "daily" && c.fillAfterMs !== undefined && !c.fillAt) {
+      c.fillAt = new Date(this.now().getTime() + c.fillAfterMs).toISOString();
+      this.store.save();
+    }
     try { this.maybeOpenCity(c); } catch (err) { console.warn(`[lobby ${c.id}] 无法开启城市：${(err as Error).message}`); }
     return { agent: rec, webhookSecret };
   }

@@ -6,8 +6,8 @@ import {
   type Abilities, type Dimension, type FamilyStats, type TaskPublic,
 } from "@echo/exam";
 import { networkText, injectedText } from "@echo/agents";
-import { BANK_TRIALS } from "@echo/engine";
-import { extractJsonObject, sanitizeText } from "@echo/protocol";
+import { BANK_TRIALS, DECK_TRIALS } from "@echo/engine";
+import { cardLabel, extractJsonObject, sanitizeText, type Rank } from "@echo/protocol";
 import { signPayload, HEADER_DEADLINE, HEADER_PROTOCOL, HEADER_REQUEST_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP } from "@echo/protocol/signing";
 import { newId, newToken, type Sealer } from "./crypto";
 import { ApiError } from "./manager";
@@ -498,7 +498,7 @@ export class ExamService {
           const l = i + 1, s = st?.levels[l];
           return { level: l, rating: Math.round(levelRating(st, l)), attempts: s?.n ?? 0, passRate: s?.n ? s.pass / s.n : null };
         });
-        const cards = BANK_TRIALS.filter((t) => t.bank.families.includes(f.id)).map((t) => ({ id: t.id, card: `${t.suit}${t.rank}`, name: t.name }));
+        const cards = [...BANK_TRIALS, ...DECK_TRIALS].filter((t) => t.bank.families.includes(f.id)).map((t) => ({ id: t.id, card: cardLabel(t.suit, t.rank as Rank), name: t.name }));
         return { ...f, levels, cards, frontier: pickLevel(popAbility(d.id), f.maxLevel, st), attempts: levels.reduce((x, l) => x + l.attempts, 0) };
       }),
     }));

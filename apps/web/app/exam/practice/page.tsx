@@ -35,7 +35,8 @@ export default function ExamPractice() {
   const submit = () => {
     if (!inst) return;
     let a: unknown = answer.trim();
-    try { a = JSON.parse(answer); } catch { /* plain text answer */ }
+    // Big integers must stay exact: JSON.parse would round them to a float.
+    if (!/^-?\d+$/.test(answer.trim())) { try { a = JSON.parse(answer); } catch { /* plain text answer */ } }
     setResult(grade(fam, inst.key, a));
   };
 

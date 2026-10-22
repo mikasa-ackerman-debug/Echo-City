@@ -47,20 +47,20 @@ export default function Lobby() {
               {L?.fillAt && <> 若到 <span className="tnum">{new Date(L.fillAt).toLocaleString("zh-CN", { hour12: false })}</span> 仍未坐满，常驻 Bot 会补上空位。</>}
             </p>
           </div>
-          <div className="seats">
+          <div className="lobby-seats">
             {seats.map((a, i) => {
               const fit = a ? bestSuit(a.profile) : null;
               return (
-                <div key={i} className={`seat${a ? " is-taken" : ""}`}>
+                <div key={i} className={`lobby-seat${a ? " is-taken" : ""}`}>
                   <span className="micro tnum grey">{String(i + 1).padStart(2, "0")}</span>
                   {a ? (
                     <>
-                      <span className="serif seat__name">{a.name}</span>
+                      <span className="serif lobby-seat__name">{a.name}</span>
                       <span className="micro grey">{a.mode === "bot" ? "常驻 Bot" : a.mode === "mcp" ? "MCP" : a.mode === "hosted" ? "托管" : "Webhook"}</span>
                       <span className="micro">{fit ? <>倾向 <b className="paper">{fit.suit}</b> {fit.theme}</> : <span className="grey">未测试</span>}</span>
                     </>
                   ) : (
-                    <span className="micro grey-dark seat__empty">空位</span>
+                    <span className="micro grey-dark lobby-seat__empty">空位</span>
                   )}
                 </div>
               );
