@@ -1,0 +1,24 @@
+# API-only deployment (frontend hosted elsewhere, e.g. Vercel).
+#   docker compose -f deploy/docker-compose.api.yml --env-file .env up -d --build
+# Binds to 127.0.0.1:${ECHO_API_PORT:-8788}; put a TLS reverse proxy (Caddy etc.) in front.
+# .env needs: ECHO_ADMIN_TOKEN, ECHO_SECRET_KEY (32+ chars), ECHO_CORS_ORIGIN (exact frontend origin).
+
+name: echo-city
+
+services:
+  api:
+    build: { context: .., target: api }
+    restart: unless-stopped
+    environment:
+      ECHO_ADMIN_TOKEN: ${ECHO_ADMIN_TOKEN:?set ECHO_ADMIN_TOKEN (32+ chars)}
+      ECHO_SECRET_KEY: ${ECHO_SECRET_KEY:?set ECHO_SECRET_KEY (32+ chars)}
+      ECHO_CORS_ORIGIN: ${ECHO_CORS_ORIGIN:?set ECHO_CORS_ORIGIN to the frontend origin}
+      ECHO_MODE: ${ECHO_MODE:-weekly}
+      ECHO_AUTODEMO: ${ECHO_AUTODEMO:-1}
+    ports:
+      - "127.0.0.1:${ECHO_API_PORT:-8788}:8787"
+    volumes:
+      - echo-data:/data
+
+volumes:
+  echo-data:
