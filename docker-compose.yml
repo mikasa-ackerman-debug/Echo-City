@@ -5,12 +5,14 @@
 
 services:
   api:
+    # ⚠ 必须单实例：MCP 待决观察、流票据、速率限制都在进程内存（docs/MCP-ACCESS.md R5），不要 scale/replicas > 1
     build: { context: ., target: api }
     restart: unless-stopped
     environment:
       ECHO_ADMIN_TOKEN: ${ECHO_ADMIN_TOKEN:?set ECHO_ADMIN_TOKEN in .env (32+ chars)}
       ECHO_SECRET_KEY: ${ECHO_SECRET_KEY:?set ECHO_SECRET_KEY in .env (32+ chars)}
       ECHO_CORS_ORIGIN: ${ECHO_PUBLIC_URL:-http://localhost:8080}
+      ECHO_PUBLIC_URL: ${ECHO_PUBLIC_URL:-http://localhost:8080}
       ECHO_MODE: ${ECHO_MODE:-weekly}
       ECHO_AUTODEMO: ${ECHO_AUTODEMO:-1}
     volumes:

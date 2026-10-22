@@ -1,8 +1,9 @@
 import { LIMITS, sanitizeText, textLength, type HostProfile, type LineageEntry } from "@echo/protocol";
-import { LlmAgent, PERSONAS, RuleBot, STRATEGY_TEMPLATES, WebhookAgent, validateNetworkUrl, type AgentDriver, type Persona } from "@echo/agents";
-import { DEFAULT_CONFIG, createCycle as createEngineCycle, diagnose, summarize, validateWhisper, type CycleEvent, type CycleState, type RosterEntry } from "@echo/engine";
+import { LlmAgent, McpDriver, PERSONAS, RuleBot, STRATEGY_TEMPLATES, WebhookAgent, validateNetworkUrl, type AgentDriver, type Persona } from "@echo/agents";
+import { DEFAULT_CONFIG, createCycle as createEngineCycle, diagnose, summarize, validateWhisper, type CycleEvent, type CycleState, type RosterEntry, type TimeoutClass } from "@echo/engine";
 import { BOT_NAMES, SAMPLE_HOSTS, buildReplay, continueCycle, type RunHooks } from "@echo/runner";
 import { Sealer, newId, newToken } from "./crypto";
+import { MemoryObservationRegistry } from "./registry";
 import { nextMonday1900, sleep, stageTime } from "./schedule";
 import type { AgentRec, CycleRec, LineageRec, Store, TombstoneRec, UserRec } from "./store";
 
@@ -25,6 +26,10 @@ export interface ManagerOptions {
   now?: () => Date;
   /** The task bank (standing exam) that serves the bank-backed trial cards. */
   bank?: TaskBankLink;
+  /** 覆盖 MCP agent 的实际超时预算（毫秒，按超时类别）；默认 MCP_TIMEOUTS_MS。仅测试/运维调参用。 */
+  mcpTimeoutsMs?: Partial<Record<TimeoutClass, number>>;
+  /** weekly 审判夜幕间休息（宿主低语）时长，默认 10 分钟。测试用注入时钟压缩整周时调小。 */
+  judgmentBreakMs?: number;
 }
 
 /** How the weekly cycle and the task bank talk: difficulty flows in, results flow back. */
@@ -33,6 +38,25 @@ export interface TaskBankLink {
   frontier(): Record<string, number>;
   /** Answers given on bank-backed cards during a cycle. */
   record(answers: Array<{ agentId: string; family: string; level: number; score: number }>): void;
+}
+
+/**
+ * MCP agent 的实际超时预算（FR-5 / R1）：Agent CLI 单次决策 10–60s+，引擎默认 deadline 对其不可行。
+ * 只放宽 runner 等待时长，不改引擎规则、不改 obs.deadline_ms；host（宿主低语）是人类操作，不经 MCP。
+ */
+export const MCP_TIMEOUTS_MS: Readonly<Record<Exclude<TimeoutClass, "host">, number>> = { day: 300000, trial: 240000, spade: 120000, talk: 60000, puzzle: 300000 };
+
+/**
+ * per-agent 超时倍率（D3-C1）。代码事实：引擎超时按"类别"分配（day/trial/spade/talk 各自基准不同），
+ * 而文档建议值是各类别的绝对时长，所以倍率必须按 (agent, 类别) 计算——单一 scaleFor(agentId) 表达不了
+ * 20s→300s（×15）与 5s→120s（×24）同时成立。非 MCP agent 保持全局 timeoutScale。
+ */
+export function mcpScaleFor(isMcp: (agentId: string) => boolean, globalScale: number, overrides: Partial<Record<TimeoutClass, number>> = {}) {
+  return (agentId: string, timeout: TimeoutClass, baseMs: number): number => {
+    if (!isMcp(agentId) || timeout === "host") return globalScale;
+    const target = overrides[timeout] ?? MCP_TIMEOUTS_MS[timeout];
+    return baseMs > 0 && Number.isFinite(target) && target > 0 ? target / baseMs : globalScale;
+  };
 }
 
 export type DeliveredEvent = CycleEvent & { deliveryCursor: number };
@@ -58,7 +82,7 @@ export interface RegisterInput {
   name: string;
   lineageId?: string;
   host?: HostProfile;
-  mode: "hosted" | "webhook" | "bot";
+  mode: "hosted" | "webhook" | "bot" | "mcp";
   strategy?: string;
   hosted?: { baseUrl: string; model: string; apiKey: string };
   webhook?: { url: string; secret?: string };
@@ -70,6 +94,8 @@ export class CycleManager {
   private subs = new Map<string, Set<Subscriber>>();
   private windows = new Map<string, WhisperWindow>();
   private live = new Map<string, CycleState>();
+  /** MCP 待决观察注册表（进程内存，单实例约束见 registry.ts / R5）。 */
+  readonly mcp = new MemoryObservationRegistry();
 
   constructor(readonly store: Store, readonly opts: ManagerOptions) {}
 
@@ -241,6 +267,7 @@ export class CycleManager {
     return {
       signal,
       timeoutScale: this.opts.timeoutScale,
+      scaleFor: mcpScaleFor((id) => this.store.agent(id)?.mode === "mcp", this.opts.timeoutScale, this.opts.mcpTimeoutsMs),
       onEvents: (events, state) => {
         this.store.checkpoint(state, events, this.now().toISOString());
         const answers = events.filter((e) => e.type === "bank_answer").map((e) => e.data as { agentId: string; family: string; level: number; score: number });
@@ -306,7 +333,7 @@ export class CycleManager {
     const gens = lin?.generations ?? [];
     const previous: LineageEntry[] = gens.slice(-5).map((g) => ({ name: g.name, generation: g.generation, fate: g.fate, night: g.night, card: g.card, last_words: g.last_words, letter: g.letter }));
     const generation = a.returned ? gens[gens.length - 1]?.generation ?? 1 : (gens[gens.length - 1]?.generation ?? 0) + 1;
-    const kind = a.mode === "bot" ? `bot:${a.bot?.persona}` : a.mode === "hosted" ? `hosted:${a.hosted?.model}` : "webhook";
+    const kind = a.mode === "bot" ? `bot:${a.bot?.persona}` : a.mode === "hosted" ? `hosted:${a.hosted?.model}` : a.mode === "mcp" ? "mcp" : "webhook";
     return { id: a.id, name: a.name, host, lineage: { generation, previous }, lineageId: lin?.id, returned: a.returned, humanity: a.returned ? a.humanity : undefined, kind, owner: a.ownerId === "system" ? undefined : a.ownerId };
   }
 
@@ -315,6 +342,8 @@ export class CycleManager {
       return new LlmAgent({ baseUrl: a.hosted.baseUrl, model: a.hosted.model, apiKey: this.opts.sealer.open(a.hosted.apiKey), strategy: a.strategy, allowHttp: this.opts.allowInsecureWebhooks });
     }
     if (a.mode === "webhook" && a.webhook) return new WebhookAgent({ url: a.webhook.url, secret: this.opts.sealer.open(a.webhook.secret), allowHttp: this.opts.allowInsecureWebhooks });
+    // MCP：观察登记进注册表，等玩家的 Agent CLI 经 /mcp 拉取并提交。resumeAll 重建时注册表为空 = 客户端离线，等待重连。
+    if (a.mode === "mcp") return new McpDriver(this.mcp, a.id);
     return new RuleBot((a.bot?.persona as Persona) ?? "guardian");
   }
 
@@ -337,6 +366,8 @@ export class CycleManager {
       if (!banned || new Date(c.startsAt).getTime() <= new Date(banned.startsAt).getTime()) throw new ApiError(403, "该账号本周被禁止报名");
     }
     const inCycle = this.store.db.agents.filter((a) => a.cycleId === c.id);
+    // R1：MCP Agent 决策慢（10–60s+），只能参加按真实时间推进的 weekly 轮回。
+    if (input.mode === "mcp" && c.mode !== "weekly") throw new ApiError(409, "快速模式仅限演示 Bot：MCP Agent 只能报名 weekly 轮回");
     if (inCycle.some((a) => a.ownerId === user.id)) throw new ApiError(409, "每个账号每周只能报名一个 Agent");
     if (inCycle.length >= 96) throw new ApiError(409, "轮回最多 96 个 Agent");
     if (typeof input.name !== "string" || /[\[\]<>:\r\n]/.test(input.name) || /(?:ANANKE|system)/i.test(input.name.trim())) throw new ApiError(400, "保留或无效的名字");
@@ -389,7 +420,9 @@ export class CycleManager {
       const persona = input.bot?.persona ?? "guardian";
       if (!Object.hasOwn(PERSONAS, persona)) throw new ApiError(400, `未知的 Bot 人格：${persona}`);
       rec.bot = { persona };
-    } else throw new ApiError(400, "mode 必须是 hosted / webhook / bot");
+    } else if (input.mode === "mcp") {
+      // 无需 url/secret/apiKey：v1 直接用用户 Bearer token 访问 /mcp（D5）。
+    } else throw new ApiError(400, "mode 必须是 hosted / webhook / bot / mcp");
     if (!lin) rec.lineageId = this.createLineage(user, newHost!).id;
     this.store.db.agents.push(rec);
     this.store.flush();
@@ -408,6 +441,12 @@ export class CycleManager {
   async testAgent(user: UserRec, agentId: string): Promise<{ ok: boolean; ms: number; error?: string; response?: unknown }> {
     const a = this.store.agent(agentId);
     if (!a || a.ownerId !== user.id) throw new ApiError(404, "Agent 不存在");
+    if (a.mode === "mcp") {
+      // 不能向注册表塞探测观察（会接管真实待决观察）；改为检查客户端最近是否在轮询 /mcp。
+      const seen = this.mcp.lastSeen(a.id);
+      const ms = seen === undefined ? -1 : Date.now() - seen;
+      return seen !== undefined && ms <= 60000 ? { ok: true, ms } : { ok: false, ms: Math.max(0, ms), error: "尚未检测到 MCP 客户端：请让你的 Agent 调用 echo.get_state 或 echo.get_observation" };
+    }
     const { advance, buildObservation, createCycle } = await import("@echo/engine");
     const { normalizeResponse } = await import("@echo/protocol");
     const roster = [this.rosterEntry(a), { id: "probe", name: a.name === "Probe" ? "Probe-2" : "Probe", host: SAMPLE_HOSTS[0] }];
@@ -431,7 +470,7 @@ export class CycleManager {
   private openWhisperWindow(c: CycleRec, state: CycleState, agents: string[], signal: AbortSignal): Promise<Record<string, string>> {
     const human = agents.filter((id) => this.store.agent(id)?.ownerId !== "system");
     const judgmentBreak = state.waiting.kind === "host" && state.waiting.label.startsWith("judgment-break-");
-    const windowMs = c.demo ? Math.min(this.opts.whisperWindowMs * (judgmentBreak ? 2 : 1), judgmentBreak ? 60000 : 45000) : judgmentBreak && c.mode === "weekly" ? 10 * 60000 : this.opts.whisperWindowMs;
+    const windowMs = c.demo ? Math.min(this.opts.whisperWindowMs * (judgmentBreak ? 2 : 1), judgmentBreak ? 60000 : 45000) : judgmentBreak && c.mode === "weekly" ? (this.opts.judgmentBreakMs ?? 10 * 60000) : this.opts.whisperWindowMs;
     if (windowMs <= 0) return Promise.resolve({});
     if (!human.length) return judgmentBreak ? sleep(windowMs, signal).then(() => ({})) : Promise.resolve({});
     return new Promise((resolve) => {
@@ -453,6 +492,13 @@ export class CycleManager {
       this.windows.set(c.id, w);
       if (signal.aborted) w.resolve();
     });
+  }
+
+  /** MCP get_state 用：只返回该 agent 自己的实时数值（不含暗号、人性值等隐藏属性）。 */
+  liveSelf(cycleId: string, agentId: string): { uptime: number; strikes: number; night: number; phase: string } | null {
+    const st = this.live.get(cycleId);
+    const a = st?.agents[agentId];
+    return st && a ? { uptime: a.uptime, strikes: a.strikes, night: st.night, phase: st.phase } : null;
   }
 
   whisperWindow(cycleId: string, user?: UserRec) {

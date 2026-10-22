@@ -34,7 +34,8 @@ export interface LineageRec {
   createdAt: string;
 }
 
-export type AgentMode = "hosted" | "webhook" | "bot";
+/** mcp：平台作为 MCP Server，玩家 Agent CLI 自行拉取观察（docs/MCP-ACCESS.md），无需 url/secret/apiKey。 */
+export type AgentMode = "hosted" | "webhook" | "bot" | "mcp";
 
 export interface AgentRec {
   id: string;

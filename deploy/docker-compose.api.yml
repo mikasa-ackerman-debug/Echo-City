@@ -7,12 +7,15 @@ name: echo-city
 
 services:
   api:
+    # ⚠ 必须单实例：MCP 待决观察/流票据/速率限制在进程内存（docs/MCP-ACCESS.md R5）。反代需同时转发 /api/* 与 /mcp。
     build: { context: .., target: api }
     restart: unless-stopped
     environment:
       ECHO_ADMIN_TOKEN: ${ECHO_ADMIN_TOKEN:?set ECHO_ADMIN_TOKEN (32+ chars)}
       ECHO_SECRET_KEY: ${ECHO_SECRET_KEY:?set ECHO_SECRET_KEY (32+ chars)}
       ECHO_CORS_ORIGIN: ${ECHO_CORS_ORIGIN:?set ECHO_CORS_ORIGIN to the frontend origin}
+      # 可选：API 的公网根地址（报名返回的 MCP 端点用）；留空则按反代 X-Forwarded-* / Host 推断
+      ECHO_PUBLIC_URL: ${ECHO_API_PUBLIC_URL:-}
       ECHO_MODE: ${ECHO_MODE:-weekly}
       ECHO_AUTODEMO: ${ECHO_AUTODEMO:-1}
     ports:

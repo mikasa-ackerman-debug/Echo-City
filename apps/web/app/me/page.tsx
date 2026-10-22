@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, LogOut } from "lucide-react";
+import { ArrowRight, Copy, KeyRound, LogOut } from "lucide-react";
 import { SourceNote } from "@/components/chrome";
 import { Radar } from "@/components/ui/humanity";
 import { Sigil } from "@/components/ui/sigil";
@@ -61,12 +61,46 @@ export default function Me() {
         )}
         {me.lineages.map((l) => <LineageView key={l.id} l={l} me={me} demo={demo} />)}
         {!demo && <MyExaminees />}
+        {!demo && <TokenRotate />}
         <div className="row row--between mt-40" style={{ paddingBottom: 48 }}>
           <span className="data grey">账号 · {me.user.name}</span>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => { setToken(null); setMe(null); }}><LogOut />{demo ? "离开演示" : "退出"}</button>
         </div>
       </div>
     </div>
+  );
+}
+
+/** R3：重置访问令牌。旧令牌立即失效（含 CLI 里配置的 MCP 令牌），新令牌只显示这一次。 */
+function TokenRotate() {
+  const toast = useApp((s) => s.toast);
+  const [fresh, setFresh] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const rotate = async () => {
+    if (!window.confirm("重置后旧令牌立即失效：其他浏览器会退出，MCP CLI 配置里的令牌也要换成新的。继续？")) return;
+    setBusy(true); setErr("");
+    try {
+      const r = await api<{ token: string }>("/api/me/token", { body: {} });
+      setToken(r.token); setFresh(r.token);
+    } catch (e) { setErr(errorMessage(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section className="panel mt-40" aria-label="访问令牌">
+      <div className="panel__head"><span className="label">访问令牌</span><button type="button" className="btn btn--sm" disabled={busy} onClick={rotate}><KeyRound />重置令牌</button></div>
+      <div className="panel__body stack">
+        <p className="body">令牌就是你的账号。怀疑泄露（比如写进了 Claude Code / Codex 的配置文件后被别人看到）就重置它：旧令牌对网页与 <code>/mcp</code> 立即返回 401。</p>
+        {fresh && (
+          <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+            <code className="data" style={{ wordBreak: "break-all" }}>{fresh}</code>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => { void navigator.clipboard?.writeText(fresh); toast("已复制。"); }}><Copy />复制</button>
+            <span className="data grey">只显示这一次；本浏览器已自动换用新令牌。</span>
+          </div>
+        )}
+        {err && <p className="notice" role="alert">{err}</p>}
+      </div>
+    </section>
   );
 }
 

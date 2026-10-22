@@ -15,6 +15,7 @@ import { nextMonday1900 } from "./schedule";
  *   ECHO_STEP_DELAY_MS      fast mode delay between steps (default 250)
  *   ECHO_AUTODEMO=1         on boot with no cycles: run a 12-bot demo cycle in fast mode
  *   ECHO_ALLOW_HTTP_WEBHOOK=1  allow http:// webhooks (dev)
+ *   ECHO_PUBLIC_URL         public site root (e.g. https://echo.example.com) used for the MCP endpoint in register responses
  */
 const env = process.env;
 const prod = env.NODE_ENV === "production";
@@ -31,6 +32,7 @@ const { server, manager, store, exam } = createApp({
   adminToken,
   secretKey,
   corsOrigin: env.ECHO_CORS_ORIGIN,
+  publicUrl: env.ECHO_PUBLIC_URL,
   timeoutScale: Number(env.ECHO_TIMEOUT_SCALE ?? (mode === "fast" ? 0.2 : 1)),
   whisperWindowMs: Number(env.ECHO_WHISPER_MS ?? (mode === "fast" ? 3000 : 90000)),
   fastStepDelayMs: Number(env.ECHO_STEP_DELAY_MS ?? 250),

@@ -8,6 +8,7 @@
     "packages/*/test/**/*.ts",
     "apps/api/src/**/*.ts",
     "apps/api/test/**/*.ts",
-    "examples/webhook-ts/src/**/*.ts"
+    "examples/webhook-ts/src/**/*.ts",
+    "examples/mcp-agent/src/**/*.ts"
   ]
 }

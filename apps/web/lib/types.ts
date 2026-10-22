@@ -7,7 +7,7 @@ import type { HostProfile, LineageEntry } from "@echo/protocol";
 
 export type CycleStatus = "registering" | "running" | "ended" | "aborted";
 export type AgentStatus = "registered" | "alive" | "deleted" | "ascended" | "returned" | "archived";
-export type AgentMode = "hosted" | "webhook" | "bot";
+export type AgentMode = "hosted" | "webhook" | "bot" | "mcp";
 
 export interface LiveVenue { district: string; status: "lit" | "running" | "done" | "dark"; registered: number; capacity: number; card?: string }
 export interface LiveSnapshot {

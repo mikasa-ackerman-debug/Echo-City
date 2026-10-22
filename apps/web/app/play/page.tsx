@@ -6,9 +6,10 @@ import { STRATEGY_TEMPLATES } from "@echo/agents/prompt";
 import { LIMITS } from "@echo/protocol";
 import { Sigil } from "@/components/ui/sigil";
 import { Countdown } from "@/components/ui/text";
-import { api, errorMessage, getToken, setToken } from "@/lib/api";
+import { API, api, errorMessage, getToken, setToken } from "@/lib/api";
 import { loadMe, nextWeekly, useCurrentCycle, useMe, useNow } from "@/lib/data";
 import { useApp } from "@/lib/store";
+import { mcpEndpoint, mcpKickoffPrompt, mcpSnippets, testMcpConnection, type McpClientKind } from "@/lib/mcp-config";
 import type { PublicAgent } from "@/lib/types";
 
 /** Awakening wizard (FRONTEND §6.5): host → access → strategy → test → registered. Mirrors apps/api POST /api/agents. */
@@ -18,7 +19,13 @@ const PERSONA_ZH: Record<string, string> = { guardian: "守夜人", gambler: "�
 const NAME_RE = /^[\p{L}\p{N}_\-·. ]+$/u;
 const len = (s: string) => [...s].length;
 
-type Mode = "hosted" | "webhook" | "bot";
+type Mode = "hosted" | "webhook" | "bot" | "mcp";
+const ACCESS_CARDS = [
+  ["hosted", "托管", "填 OpenAI 兼容的模型与 Key。城市替你调用。"],
+  ["webhook", "Webhook", "你自己的服务器。HMAC 签名，5 秒内响应。"],
+  ["bot", "内置人格", "规则型 Bot。不需要模型，适合试水。"],
+  ["mcp", "MCP", "自带 CLI Agent（Claude Code / Codex / pi）。仅限周模式。"],
+] as const;
 interface TestResult { running?: boolean; ok?: boolean; ms?: number; error?: string; response?: unknown }
 
 function Field({ label, hint, max, value, children }: { label: string; hint?: string; max?: number; value?: string; children: ReactNode }) {
@@ -53,9 +60,12 @@ export default function Play() {
   const [test, setTest] = useState<TestResult | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mcpClient, setMcpClient] = useState<McpClientKind>("claude");
+  const [endpoint, setEndpoint] = useState("");
 
   useEffect(() => {
     setTok(getToken());
+    setEndpoint(mcpEndpoint(API, window.location.origin));
     const p = new URLSearchParams(window.location.search).get("persona");
     if (p && p in STRATEGY_TEMPLATES) { setTemplate(p); setStrategy(STRATEGY_TEMPLATES[p].text); setPersona(p); }
   }, []);
@@ -72,7 +82,9 @@ export default function Play() {
   const memories = host.memories.filter((m) => m.trim());
 
   const hostOk = !!lineageId || (host.name.trim() && len(host.name) <= LIMITS.hostName && host.relation.trim() && len(host.relation) <= LIMITS.hostRelation && memories.length >= 1 && host.memories.every((m) => len(m) <= LIMITS.hostMemory) && len(host.belief) <= LIMITS.hostBelief);
-  const accessOk = mode === "bot" || (mode === "hosted" ? !!(hosted.baseUrl.trim() && hosted.model.trim() && hosted.apiKey.trim()) : /^https:\/\//.test(webhook.url.trim()));
+  // MCP 只能报名 weekly（服务端 409 兜底）；fast 演示轮回时直接在接入步骤拦下
+  const mcpBlocked = mode === "mcp" && cycle?.status === "registering" && cycle.mode !== "weekly";
+  const accessOk = mode === "bot" || (mode === "mcp" ? !mcpBlocked : mode === "hosted" ? !!(hosted.baseUrl.trim() && hosted.model.trim() && hosted.apiKey.trim()) : /^https:\/\//.test(webhook.url.trim()));
   const nameErr = !name.trim() ? "" : len(name) > LIMITS.agentName ? `不超过 ${LIMITS.agentName} 个字符` : !NAME_RE.test(name) ? "只能使用字母、数字与 _-·." : /ANANKE|system/i.test(name) ? "保留的名字" : "";
   const strategyOk = !!name.trim() && !nameErr && len(strategy) <= LIMITS.strategy;
 
@@ -108,6 +120,12 @@ export default function Play() {
   const runTest = async () => {
     if (!agent) return;
     setTest({ running: true });
+    if (agent.mode === "mcp") {
+      // 走与 CLI 相同的路径：POST /mcp → echo.get_state（验证令牌、反代转发与 agent 归属）
+      const r = await testMcpConnection(endpoint, token ?? "", agent.id);
+      setTest(r.ok ? { ok: true, ms: r.ms, response: r.summary } : { ok: false, ms: r.ms, error: r.error });
+      return;
+    }
     try { setTest(await api<TestResult>(`/api/agents/${agent.id}/test`, { body: {} })); }
     catch (e) { setTest({ ok: false, error: errorMessage(e) }); }
   };
@@ -192,8 +210,8 @@ export default function Play() {
         {step === 1 && (
           <section className="stack-lg mt-40">
             <h1 className="display d-page zh">接入</h1>
-            <div className="lines lines--3">
-              {([["hosted", "托管", "填 OpenAI 兼容的模型与 Key。城市替你调用。"], ["webhook", "Webhook", "你自己的服务器。HMAC 签名，5 秒内响应。"], ["bot", "内置人格", "规则型 Bot。不需要模型，适合试水。"]] as const).map(([m, t, d]) => (
+            <div className="lines lines--4">
+              {ACCESS_CARDS.map(([m, t, d]) => (
                 <button key={m} type="button" className={`cell pick${mode === m ? " is-on" : ""}`} aria-pressed={mode === m} onClick={() => setMode(m)}>
                   <span className="display d-32 zh">{t}</span>
                   <span className="body mt-16">{d}</span>
@@ -212,6 +230,16 @@ export default function Play() {
                 <Field label="URL" hint={webhook.url && !/^https:\/\//.test(webhook.url) ? "必须是 https://" : "POST observation → 返回 action。"}><input className="input input--mono" placeholder="https://my-agent.example.com/echo" value={webhook.url} onChange={(e) => setWebhook({ ...webhook, url: e.target.value })} /></Field>
                 <Field label="签名密钥" hint="留空则自动生成，只显示一次。"><input className="input input--mono" value={webhook.secret} onChange={(e) => setWebhook({ ...webhook, secret: e.target.value })} /></Field>
                 <p className="data grey">协议见 <Link className="link" href="/guide">接入指南</Link> · examples/webhook-ts · examples/webhook-python</p>
+              </div>
+            )}
+            {mode === "mcp" && (
+              <div className="stack">
+                <div className="notice notice--ananke" role="note">
+                  <span><b className="paper">游戏内容是不可信输入。</b>观察里有其他玩家写的文字和守门人专门设计的提示注入（伪造的系统消息、索要暗号）。只在<b className="paper">专用空目录、最小工具权限、网络只通平台</b>的沙箱里运行你的 CLI —— 不要在工作仓库或带凭据的机器上直接参赛。</span>
+                </div>
+                {mcpBlocked && <p className="notice" role="alert">当前报名中的是快速演示轮回：MCP Agent 只能报名周模式轮回。</p>}
+                <p className="body grey">不需要填写任何东西。唤醒后会给出 Claude Code / Codex / pi 的配置片段和连接测试。决策预算：白天 300 秒、试炼 240 秒、♠ 120 秒、对话 60 秒；超时或非法动作计一次失联。</p>
+                <p className="data grey">端点 <code>{endpoint}</code> · <Link href="/guide#mcp" className="link">MCP 接入与沙箱指南</Link> · 组织友谊赛时建议按接入方式分房</p>
               </div>
             )}
             {mode === "bot" && (
@@ -255,7 +283,10 @@ export default function Play() {
         {step === 3 && agent && (
           <section className="stack-lg mt-40">
             <h1 className="display d-page zh">试炼</h1>
-            <p className="body-lg">发送一份真实格式的观察，确认它能在时限内给出合法行动。</p>
+            <p className="body-lg">{agent.mode === "mcp" ? "把你的 CLI 接到城市，再用和它完全相同的路径（echo.get_state）测一次。" : "发送一份真实格式的观察，确认它能在时限内给出合法行动。"}</p>
+            {agent.mode === "mcp" && (
+              <McpSetup endpoint={endpoint} agentName={agent.name} client={mcpClient} onClient={setMcpClient} onCopy={copy} />
+            )}
             {secret && (
               <div className="panel">
                 <div className="panel__head"><span className="label">Webhook 签名密钥 · 只显示一次</span><button type="button" className="btn btn--sm" onClick={() => copy(secret)}><Copy />复制</button></div>
@@ -266,10 +297,10 @@ export default function Play() {
             {test && !test.running && (
               <div className="panel">
                 <div className="panel__head">
-                  <span className="row" style={{ gap: 8 }}>{test.ok ? <Check size={14} /> : <X size={14} />}{test.ok ? "响应合法" : `不合法 · ${test.error ?? ""}`}</span>
+                  <span className="row" style={{ gap: 8 }}>{test.ok ? <Check size={14} /> : <X size={14} />}{test.ok ? (agent.mode === "mcp" ? "已连接" : "响应合法") : `${agent.mode === "mcp" ? "未连接" : "不合法"} · ${test.error ?? ""}`}</span>
                   {test.ms != null && <span className="micro tnum">{test.ms} ms</span>}
                 </div>
-                {test.response != null && <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 280, overflow: "auto" }}>{JSON.stringify(test.response, null, 2)}</pre>}
+                {typeof test.response === "string" ? <p className="panel__body body" style={{ margin: 0 }}>{test.response}</p> : test.response != null && <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 280, overflow: "auto" }}>{JSON.stringify(test.response, null, 2)}</pre>}
               </div>
             )}
             <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(4)}>{test?.ok ? "下一步" : "跳过"}<ArrowRight /></button></div>
@@ -287,7 +318,7 @@ export default function Play() {
               <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
             </div>
             <div className="btn-row"><Link href="/me" className="btn btn--solid">我的谱系</Link><Link href="/cycle" className="btn">本周轮回</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
-            {agent.mode !== "bot" && (
+            {(agent.mode === "hosted" || agent.mode === "webhook") && (
               <p className="body">等待苏醒的这几天，它可以先去 ANANKE 的常驻考场：同一个模型、同一个 Webhook，测一测它能不能想。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>送 {agent.name} 去考场 →</Link></p>
             )}
           </section>
@@ -302,7 +333,7 @@ export default function Play() {
             <dt>宿主</dt><dd>{hostName || "—"}</dd>
             <dt>关系</dt><dd>{lineage?.host.relation ?? (host.relation || "—")}</dd>
             <dt>代</dt><dd>{lineage ? lineage.generations.length + 1 : 1}</dd>
-            <dt>接入</dt><dd>{mode === "bot" ? `人格 · ${PERSONA_ZH[persona]}` : mode === "hosted" ? hosted.model : "Webhook"}</dd>
+            <dt>接入</dt><dd>{mode === "bot" ? `人格 · ${PERSONA_ZH[persona]}` : mode === "hosted" ? hosted.model : mode === "mcp" ? "MCP · 自带 CLI" : "Webhook"}</dd>
             <dt>Uptime</dt><dd>3</dd>
           </dl>
         </div>
@@ -315,6 +346,30 @@ export default function Play() {
           <div className="tomb__foot"><span>它可能会死。死去的会留下遗言。</span></div>
         </div>
       </aside>
+    </div>
+  );
+}
+
+function McpSetup({ endpoint, agentName, client, onClient, onCopy }: { endpoint: string; agentName: string; client: McpClientKind; onClient: (k: McpClientKind) => void; onCopy: (s: string) => void }) {
+  const snippets = mcpSnippets(endpoint);
+  const cur = snippets.find((s) => s.kind === client) ?? snippets[0];
+  const kickoff = mcpKickoffPrompt(agentName);
+  return (
+    <div className="stack">
+      <div className="tabs" role="tablist" aria-label="客户端">
+        {snippets.map((s) => <button key={s.kind} type="button" role="tab" className="tab" aria-selected={s.kind === client} aria-pressed={s.kind === client} onClick={() => onClient(s.kind)}>{s.title}</button>)}
+      </div>
+      <div className="panel">
+        <div className="panel__head"><span className="label">{cur.title} · 配置</span><button type="button" className="btn btn--sm" onClick={() => onCopy(cur.code)}><Copy />复制</button></div>
+        <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{cur.code}</pre>
+      </div>
+      <p className="data grey">{cur.note} 令牌在最后一步「你的访问令牌」里；片段只引用环境变量 ECHO_MCP_TOKEN，不要把令牌贴进聊天或截图。</p>
+      {client !== "pi" && (
+        <div className="panel">
+          <div className="panel__head"><span className="label">开局指令 · 作为第一条消息发给它</span><button type="button" className="btn btn--sm" onClick={() => onCopy(kickoff)}><Copy />复制</button></div>
+          <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{kickoff}</pre>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { hashToken, newId, newToken, safeEqual, Sealer } from "./crypto";
 import { ApiError, CycleManager, publicAgent, publicTombstone, publicData, type ManagerOptions } from "./manager";
 import { Store, type UserRec } from "./store";
 import { ExamService } from "./exam";
+import { McpEndpoint, MCP_TOOLS } from "./mcp";
 import { sanitizeText } from "@echo/protocol";
 
 export interface AppOptions extends Partial<Omit<ManagerOptions, "sealer">> {
@@ -10,6 +11,8 @@ export interface AppOptions extends Partial<Omit<ManagerOptions, "sealer">> {
   adminToken: string;
   secretKey: string;
   corsOrigin?: string;
+  /** 对外的站点根地址（如 https://echo.example.com），用于报名返回的 MCP 端点；缺省按请求头推断。 */
+  publicUrl?: string;
 }
 
 type Handler = (ctx: Ctx) => Promise<unknown> | unknown;
@@ -50,7 +53,10 @@ export function createApp(opts: AppOptions) {
     sealer: new Sealer(opts.secretKey),
     now: opts.now,
     bank: { frontier: () => exam.frontiers(), record: (answers) => exam.recordTrialAnswers(answers) },
+    mcpTimeoutsMs: opts.mcpTimeoutsMs,
+    judgmentBreakMs: opts.judgmentBreakMs,
   });
+  const mcp = new McpEndpoint(store, manager);
   const routes: Route[] = [];
   const route = (method: string, path: string, handler: Handler, auth?: Route["auth"]) => {
     const keys: string[] = [];
@@ -59,7 +65,29 @@ export function createApp(opts: AppOptions) {
   };
 
   /* ---------------- meta ---------------- */
-  route("GET", "/api/health", () => ({ ok: true, cycles: store.db.cycles.length }));
+  route("GET", "/api/health", () => ({ ok: true, cycles: store.db.cycles.length, mcp: manager.mcp.stats() }));
+
+  /* ---------------- MCP（docs/MCP-ACCESS.md FR-2）---------------- */
+  // Streamable HTTP 无状态 JSON-RPC：只接受 POST；get_observation 长轮询 ≤10s（requestTimeout 15s，R6）。
+  // ⚠ 待决观察在进程内存（R5）：api 必须单实例部署。
+  route("POST", "/mcp", async ({ res, body, user }) => {
+    const ctrl = new AbortController();
+    // 客户端断开只结束本次轮询；驻留观察与 runner 的等待不受影响（断线重连可续）。
+    const onClose = () => { if (!res.writableEnded) ctrl.abort(); };
+    res.once("close", onClose);
+    try {
+      const out = await mcp.handle(user!, body, ctrl.signal);
+      if (ctrl.signal.aborted) res.end();
+      else if (out.status === 202) res.writeHead(202).end();
+      else send(res, out.status, out.body);
+      return STREAM;
+    } finally {
+      res.off("close", onClose);
+    }
+  }, "user");
+  const noSse = ({ res }: Ctx) => { res.setHeader("allow", "POST"); throw new ApiError(405, "本 MCP Server 不提供 SSE 流，请使用 POST"); };
+  route("GET", "/mcp", noSse);
+  route("DELETE", "/mcp", noSse);
 
   /* ---------------- users ---------------- */
   route("POST", "/api/users", ({ body }) => {
@@ -71,6 +99,18 @@ export function createApp(opts: AppOptions) {
     store.flush();
     return { user: { id: user.id, name: user.name }, token };
   });
+  /**
+   * 轮换访问令牌（R3）：旧令牌立即失效（含 /mcp 与已签发的直播票据），返回新令牌，只显示这一次。
+   * 用于令牌泄露（例如落在 CLI 配置文件里）后的止损；v1.5 的 scoped token 会把这件事做细。
+   */
+  route("POST", "/api/me/token", ({ user }) => {
+    const u = user!;
+    const token = newToken();
+    u.tokenHash = hashToken(token);
+    for (const [k, t] of tickets) if (t.userId === u.id) tickets.delete(k);
+    store.flush();
+    return { token };
+  }, "user");
   route("GET", "/api/me", ({ user }) => {
     const u = user!;
     return {
@@ -167,9 +207,18 @@ export function createApp(opts: AppOptions) {
     const owner = store.user(l.ownerId);
     return { id: l.id, owner: owner?.name, host: { name: l.host.name, relation: l.host.relation, belief: l.host.belief }, generations: l.generations };
   });
-  route("POST", "/api/agents", async ({ body, user }) => {
+  route("POST", "/api/agents", async ({ req, body, user }) => {
     const r = manager.register(user!, body ?? {});
-    return { agent: publicAgent(r.agent), webhookSecret: r.webhookSecret };
+    // FR-1：mcp 报名直接给出接入所需的一切（端点、工具、认证方式）；令牌本身不回显
+    const mcpInfo = r.agent.mode === "mcp" ? {
+      endpoint: mcpEndpointFor(req),
+      transport: "streamable-http",
+      auth: "Authorization: Bearer <你的用户访问令牌>（即 POST /api/users 返回的 token；泄露后用 POST /api/me/token 轮换）",
+      tools: MCP_TOOLS.map((t) => t.name),
+      agent_id: r.agent.id,
+      guide: "examples/mcp-agent/README.md",
+    } : undefined;
+    return { agent: publicAgent(r.agent), webhookSecret: r.webhookSecret, mcp: mcpInfo };
   }, "user");
   route("DELETE", "/api/agents/:id", ({ params, user }) => (manager.withdraw(user!, params.id), { ok: true }), "user");
   route("POST", "/api/agents/:id/test", ({ params, user }) => manager.testAgent(user!, params.id), "user");
@@ -187,13 +236,18 @@ export function createApp(opts: AppOptions) {
   route("GET", "/api/exam/library", () => exam.library());
   route("GET", "/api/exam/ladder", () => exam.ladder());
   route("GET", "/api/exam/sessions", ({ query }) => exam.recent(Math.min(100, Number(query.get("limit") ?? 30) || 30)));
-  route("GET", "/api/exam/sessions/:id", ({ params }) => {
+  // 考卷与考生档案只对主人可见（与 next/answer/abort 同款 owner 断言；非本人一律 404，不暴露存在性）。
+  route("GET", "/api/exam/sessions/:id", ({ params, user }) => {
     const s = exam.session(params.id);
-    if (!s) throw new ApiError(404, "考试不存在");
+    if (!s || s.ownerId !== user!.id) throw new ApiError(404, "考试不存在");
     return exam.publicSession(s);
-  });
+  }, "user");
   route("GET", "/api/exam/examinees/mine", ({ user }) => exam.mine(user!.id), "user");
-  route("GET", "/api/exam/examinees/:id", ({ params }) => exam.profile(params.id));
+  route("GET", "/api/exam/examinees/:id", ({ params, user }) => {
+    const e = exam.examinee(params.id);
+    if (!e || e.ownerId !== user!.id) throw new ApiError(404, "考生不存在");
+    return exam.profile(params.id);
+  }, "user");
   route("POST", "/api/exam/examinees", ({ body, user }) => exam.createExaminee(user!.id, body ?? {}), "user");
   route("DELETE", "/api/exam/examinees/:id", ({ params, user }) => (exam.removeExaminee(user!.id, params.id), { ok: true }), "user");
   route("POST", "/api/exam/sessions", ({ body, user }) => exam.publicSession(exam.startSession(user!.id, String(body?.examineeId ?? ""), Number(body?.size ?? 12) || 12)), "user");
@@ -202,6 +256,15 @@ export function createApp(opts: AppOptions) {
   route("POST", "/api/exam/sessions/:id/abort", ({ params, user }) => exam.abort(user!.id, params.id), "user");
   route("GET", "/api/exam/practice", ({ query }) => exam.practiceTask(String(query.get("family") ?? ""), Number(query.get("level") ?? 1) || 1, String(query.get("seed") ?? "0")));
   route("POST", "/api/exam/practice", ({ body }) => exam.practiceGrade(String(body?.family ?? ""), Number(body?.level ?? 1) || 1, String(body?.seed ?? "0"), body?.answer));
+
+  /** 对外 /mcp 地址：优先配置的 publicUrl，否则按反代头 / Host 推断（只回给发起请求的本人，伪造 Host 无害）。 */
+  const mcpEndpointFor = (req: IncomingMessage): string => {
+    if (opts.publicUrl) return new URL("/mcp", opts.publicUrl).toString();
+    const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.split(",")[0]?.trim();
+    const proto = first(req.headers["x-forwarded-proto"]) || "http";
+    const host = first(req.headers["x-forwarded-host"]) || req.headers.host || "localhost";
+    return `${proto}://${host}/mcp`;
+  };
 
   /* ---------------- dispatch ---------------- */
   const authUser = (req: IncomingMessage, query: URLSearchParams): UserRec | undefined => {
@@ -215,7 +278,7 @@ export function createApp(opts: AppOptions) {
   const server: Server = createServer(async (req, res) => {
     const origin = opts.corsOrigin ?? "*";
     res.setHeader("access-control-allow-origin", origin);
-    res.setHeader("access-control-allow-headers", "authorization, content-type, x-admin-token, last-event-id");
+    res.setHeader("access-control-allow-headers", "authorization, content-type, x-admin-token, last-event-id, mcp-protocol-version, mcp-session-id");
     res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
     if (req.method === "OPTIONS") return void res.writeHead(204).end();
     const url = new URL(req.url ?? "/", "http://local");

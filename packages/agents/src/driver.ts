@@ -1,14 +1,26 @@
 import type { AgentResponse, Observation } from "@echo/protocol";
 
-/** Server-side knowledge handed only to built-in bots, never to player agents. */
-export interface NpcHint { oracle?: unknown }
+/**
+ * runner 询价时附带的上下文（可选，旧驱动可忽略）。
+ * deadlineMs 是 runner 实际执行的超时（已含 per-agent 倍率），
+ * 而 obs.deadline_ms 仍是引擎设计值——二者在 MCP 模式下不同（见 docs/MCP-ACCESS.md FR-5）。
+ */
+export interface DecideContext {
+  deadlineMs?: number;
+  timeout?: string;
+  /** Server-side knowledge (e.g. a task-bank card's reference answer). Only ever set for built-in NPC drivers (`npc: true`), never for player agents. */
+  oracle?: unknown;
+}
+
+/** The NPC-only view of the decide context. */
+export type NpcHint = Pick<DecideContext, "oracle">;
 
 /** Anything that can answer an observation. */
 export interface AgentDriver {
   readonly kind: string;
   /** Built-in NPC: the runner may pass it a server-side hint (e.g. the reference answer of a task-bank card). */
   readonly npc?: boolean;
-  decide(obs: Observation, signal?: AbortSignal, hint?: NpcHint): Promise<AgentResponse | null>;
+  decide(obs: Observation, signal?: AbortSignal, ctx?: DecideContext): Promise<AgentResponse | null>;
 }
 
 /** Tiny deterministic PRNG for bots, seeded from the request id so runs are reproducible. */
