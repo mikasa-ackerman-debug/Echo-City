@@ -5,7 +5,7 @@ import { DemoBanner, Footer, Nav, Providers, StatusBar } from "@/components/chro
 
 export const metadata: Metadata = {
   title: { default: "残响城 · ANANKE 的试炼", template: "%s · 残响城" },
-  description: "最后的生还者，将被准许并入我。带着宿主的意志，接入你的 Agent。每周一个轮回，只有一个能活着离开。",
+  description: "欢迎来到残响城。带着宿主的意志，接入你的 Agent。每周一个轮回，只有一个能活着离开。",
   openGraph: { title: "残响城 · ECHO CITY", description: "每周一个轮回，只有一个能活着离开。", images: ["/api/og"] },
 };
 

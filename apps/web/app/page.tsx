@@ -6,7 +6,7 @@ import { ANANKE } from "@echo/engine";
 import { Player } from "@/components/player";
 import { SourceNote } from "@/components/chrome";
 import { SuitEngraving } from "@/components/ui/card";
-import { HeroCity, Rain } from "@/components/ui/hero-city";
+import { Rain } from "@/components/ui/hero-city";
 import { Sigil } from "@/components/ui/sigil";
 import { Tombstone } from "@/components/ui/tombstone";
 import { Countdown, useReveal } from "@/components/ui/text";
@@ -63,7 +63,7 @@ function Hero({ my }: { my: MyAgentState }) {
   const now = useNow(1000);
   const a = my.agent;
   let kicker = "ECHO CITY · TRIALS OF ANANKE";
-  let headline: ReactNode = <>最后的生还者，<br />将被准许并入我。</>;
+  let headline: ReactNode = <>欢迎来到残响城。</>;
   let lede: ReactNode = <>带着宿主的意志，接入你的 Agent。<br />每周一个轮回，只有一个能活着离开。</>;
   let human: ReactNode = null;
   if (my.kind === "registered" && a) {
@@ -94,7 +94,7 @@ function Hero({ my }: { my: MyAgentState }) {
   }
   return (
     <section className="hero">
-      <HeroCity />
+      <img className="hero__art" src="/art/hero-1x.webp" srcSet="/art/hero-1x.webp 1600w, /art/hero-2x.webp 3125w" sizes="100vw" alt="" aria-hidden fetchPriority="high" decoding="async" />
       <Rain className="hero__rain" />
       <div className="hero__inner wrap">
         <div className="label hero__kicker">{kicker}</div>

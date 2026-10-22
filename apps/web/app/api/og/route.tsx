@@ -17,8 +17,7 @@ export function GET(req: Request) {
           <span>{name ? `✝ ${card}${night ? ` · NIGHT ${night}` : ""}` : "TRIALS OF ANANKE"}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: name ? 140 : 96, lineHeight: 0.92, textTransform: "uppercase" }}>{name || "最后的生还者"}</div>
-          {!name && <div style={{ fontSize: 96, lineHeight: 0.92 }}>将被准许并入我。</div>}
+          <div style={{ fontSize: name ? 140 : 112, lineHeight: 0.92, textTransform: "uppercase" }}>{name || "欢迎来到残响城。"}</div>
           {words && <div style={{ fontSize: 40, color: "#ff6a2b", marginTop: 32, fontStyle: "italic" }}>「{words}」</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, color: "#4f535a", letterSpacing: 4 }}>
