@@ -7,6 +7,7 @@ import { anchorCursor, defaultVenue, eventText, markerLabel, mineContext, nextCu
 import { deriveView, markers, REASON_ZH, WEEKDAY, type VenueLite } from "@/lib/player";
 import { useApp } from "@/lib/store";
 import { CityMap } from "./ui/city-map";
+import { LadderBoard } from "./ladder";
 import { SuitMark } from "./ui/card";
 import { Pips, Sigil } from "./ui/sigil";
 import { Narrator } from "./ui/text";
@@ -20,7 +21,7 @@ import { Stage } from "./stage";
 
 const MINOR = new Set(["move", "register", "uptime", "say", "whisper_meta", "scout", "search", "trade", "humanity", "thought", "trial_message", "collar_claim", "pact_signed", "host_silent", "greenhouse_round"]);
 const QUIET_FEED = new Set(["uptime", "humanity", "trial_reveal"]);
-const PHASE_ZH: Record<string, string> = { dawn: "黎明", day: "白天", trial: "夜晚试炼", settle: "结算", whisper: "宿主低语", judgment: "审判之夜", joker: "鬼牌", inquiry: "最终问询", ended: "结束" };
+const PHASE_ZH: Record<string, string> = { dawn: "黎明", day: "选择花色", trial: "试炼", settle: "结算", whisper: "宿主低语", judgment: "审判之夜", joker: "鬼牌", inquiry: "最终问询", ended: "结束" };
 
 type Ritual =
   | { kind: "delete"; items: DeletionItem[]; mine: boolean }
@@ -117,7 +118,7 @@ export function Player({ events, live = false, myAgentIds = [], onCursorChange, 
   }, [cursor, events, rituals, embedded, myAgentIds, myNames, view.venues]);
 
   /* ---------- venue selection ---------- */
-  const tonight = view.venues.filter((v) => v.night === view.night);
+  const tonight = view.venues.filter((v) => v.night === view.night && (!view.ladder || v.slot === view.ladder.slot));
   const venues = tonight.length ? tonight : view.venues.slice(-4);
   const auto = defaultVenue(venues, mine.identities);
   const selected = (pinVenue ? view.venues.find((v) => v.id === pinVenue) : null) ?? venues.find((v) => v.id === venueId) ?? (["day", "dawn", "whisper", "inquiry"].includes(view.phase) && !venueId ? undefined : auto);
@@ -278,10 +279,26 @@ export function Player({ events, live = false, myAgentIds = [], onCursorChange, 
               ) : view.phase === "inquiry" || view.inquiry.length ? (
                 <Inquiry view={view} />
               ) : (
+                view.ladder ? (
+                <div className="stack-lg">
+                  <LadderBoard
+                    rows={view.order.map((id) => {
+                      const a = view.agents[id];
+                      const l = view.ladder!.progress[id] ?? {};
+                      const ladder = { "♦": l["♦"] ?? 0, "♣": l["♣"] ?? 0, "♠": l["♠"] ?? 0, "♥": l["♥"] ?? 0 };
+                      return { name: a.name, status: a.status, ladder, total: ladder["♦"] + ladder["♣"] + ladder["♠"] + ladder["♥"] };
+                    })}
+                    mine={[...myNames]}
+                    winner={view.ladder.winner ? view.agents[view.ladder.winner]?.name : null}
+                  />
+                  {venues.length > 0 && <p className="micro">本场的牌桌：{venues.map((x) => <button key={x.id} type="button" className="link" style={{ marginRight: 12 }} onClick={() => setVenueId(x.id)}>{x.card} {x.name}</button>)}</p>}
+                </div>
+                ) : (
                 <div className="stack-lg">
                   <CityMap districts={view.districts} venues={view.lit.map((l) => { const t = tonight.find((x) => x.district === l.district); return { district: l.district, status: l.dark ? "dark" : t ? (t.ended ? "done" : "running") : "lit", registered: l.registered, capacity: l.capacity, card: t?.ended ? t.card : undefined }; })} people={people} mine={[...myNames]} onPick={(d) => { const v = venues.find((x) => x.district === d); if (v) setVenueId(v.id); }} />
                   {view.quiet && <p className="micro">今夜是静默之夜。</p>}
                 </div>
+                )
               )}
             </div>
           </div>

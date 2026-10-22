@@ -18,6 +18,24 @@ export interface LiveSnapshot {
   total: number;
   venues: LiveVenue[];
   trials: Array<{ venue: string; card: string; players: number; done: boolean }>;
+  /** Ladder rules (current): slot of the day and everyone's progress on the four suit ladders. */
+  rules?: "ladder";
+  slot?: number;
+  slotsPerDay?: number;
+  board?: LadderRow[];
+}
+
+export type LadderSuit = "♦" | "♣" | "♠" | "♥";
+export interface LadderRow { name: string; status: AgentStatus; ladder: Record<LadderSuit, number>; total: number }
+
+/** 候场区: the open lobby. */
+export interface LobbyView {
+  id: string | null;
+  status: string;
+  capacity: number;
+  seated: number;
+  fillAt: string | null;
+  agents: Array<{ id: string; name: string; mode: AgentMode; kind: string; profile: Record<string, number> | null; createdAt: string }>;
 }
 
 export interface RosterRow { id: string; name: string; mode: AgentMode; status: AgentStatus; returned: boolean; host?: string; generation: number }
@@ -34,7 +52,10 @@ export interface WhisperWindow {
 export interface CycleView {
   id: string;
   status: CycleStatus;
-  mode: "weekly" | "fast";
+  mode: "weekly" | "fast" | "daily";
+  rules?: "ladder" | "weekly";
+  capacity?: number;
+  fillAt?: string;
   startsAt: string;
   createdAt: string;
   endedAt?: string;
@@ -47,7 +68,7 @@ export interface CycleView {
   whisper: WhisperWindow;
 }
 
-export interface CycleListItem { id: string; status: CycleStatus; mode: "weekly" | "fast"; startsAt: string; endedAt?: string; agents: number; winner: string | null; ending: string | null; endingTitle: string | null }
+export interface CycleListItem { id: string; status: CycleStatus; mode: "weekly" | "fast" | "daily"; startsAt: string; endedAt?: string; agents: number; winner: string | null; ending: string | null; endingTitle: string | null }
 
 export interface PublicAgent {
   id: string; name: string; cycleId: string; lineageId: string; mode: AgentMode; status: AgentStatus; returned: boolean;

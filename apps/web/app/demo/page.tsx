@@ -62,7 +62,7 @@ export default function DemoConsole() {
       <header className="page-head">
         <div className="crumbs">后台 / 演示</div>
         <h1 className="display d-hero zh">演示：从新的周一开始</h1>
-        <p className="body-lg lede">一个私有的轮回，按压缩时钟完整走一遍「周一 19:00 苏醒 → 每晚 21:00 试炼 → 周六审判 → 周日鬼牌」。你唤醒自己的一个 Agent，其余由 mock Bot 补足 12 人。演示轮回不会出现在公开列表、墓地和「本周」里，也不影响正式报名。</p>
+        <p className="body-lg lede">一个私有的轮回，按压缩时钟完整走一遍「候场区坐满 → 每天若干场选花色闯梯子 → 走完 48 张 → JOKER」。你唤醒自己的一个 Agent，其余由 mock Bot 补足 12 人。演示轮回不会出现在公开列表、墓地和「本周」里，也不影响正式报名。</p>
       </header>
       {err && <p className="notice notice--ananke mt-24">{err}</p>}
 
@@ -104,7 +104,7 @@ export default function DemoConsole() {
           {c && c.status !== "registering" && (
             <div className="btn-row mt-24">
               <Link className="btn btn--solid" href="/cycle/live">观看直播<ArrowRight /></Link>
-              <Link className="btn" href="/cycle">本周仪表盘</Link>
+              <Link className="btn" href="/cycle">本轮仪表盘</Link>
               <Link className="btn" href="/me">我的谱系</Link>
               {c.status === "ended" && <Link className="btn" href={`/cycle/${demo.cycleId}/replay`}>回放</Link>}
             </div>

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@echo/protocol": "*",
+    "@echo/agents": "*",
     "@echo/exam": "*"
   }
 }

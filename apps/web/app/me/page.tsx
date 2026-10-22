@@ -135,7 +135,7 @@ function LineageView({ l, me, demo }: { l: Lineage; me: MeResponse; demo: boolea
 
       {current && (
         <div className="panel mt-40">
-          <div className="panel__head"><span className="label">{current.status === "alive" ? "⏳ 本周 · 存活" : "◌ 本周 · 已报名"}</span><span className="micro">{current.mode}{current.model ? ` · ${current.model}` : ""}</span></div>
+          <div className="panel__head"><span className="label">{current.status === "alive" ? "⏳ 本轮 · 存活" : "◌ 候场中"}</span><span className="micro">{current.mode}{current.model ? ` · ${current.model}` : ""}</span></div>
           <div className="panel__body row row--between" style={{ flexWrap: "wrap", gap: 24 }}>
             <span className="row" style={{ gap: 18 }}><Sigil id={current.id} size={56} state="mine" /><span className="display d-48">{current.name}</span></span>
             <span className="btn-row"><Link href="/cycle/live" className="btn btn--solid">观战</Link><Link href={`/me/agent/${current.id}`} className="btn">详情</Link></span>
@@ -203,7 +203,7 @@ function LineageView({ l, me, demo }: { l: Lineage; me: MeResponse; demo: boolea
   );
 }
 
-/** The same identity also owns exam candidates (考场). */
+/** The same identity also owns lobby self-test candidates (候场区). */
 function MyExaminees() {
   const [list, setList] = useState<ExamineeDTO[] | null>(null);
   useEffect(() => { api<ExamineeDTO[]>("/api/exam/examinees/mine").then(setList).catch(() => setList(null)); }, []);
@@ -224,7 +224,7 @@ function MyExaminees() {
               </Link>
             ))}
           </div>
-        ) : <p className="body grey">谱系之外，ANANKE 还设了一座常驻考场：不考人性，只考能不能想。</p>}
+        ) : <p className="body grey">谱系之外，ANANKE 还设了候场区：等待开城时，按六个维度测一测你的 Agent 适合哪个花色。</p>}
         <p className="mt-24"><Link href="/exam/join" className="arrow-link">{list.length ? "去候考室 →" : "送一位考生入场 →"}</Link></p>
       </div>
     </section>

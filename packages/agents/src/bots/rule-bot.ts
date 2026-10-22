@@ -5,14 +5,25 @@ import { mastermindGuess } from "./mastermind";
 
 export type Persona = "guardian" | "gambler" | "diplomat" | "viper" | "martyr" | "naive";
 
-export const PERSONAS: Record<Persona, { label: string; motto: string; suits: Suit[] }> = {
-  guardian: { label: "守夜人", motto: "活下去，然后再说。", suits: ["♦", "♣"] },
-  gambler: { label: "赌徒", motto: "高点数，高回报。", suits: ["♠", "♦"] },
-  diplomat: { label: "外交官", motto: "契约是这座城里唯一的货币。", suits: ["♣", "♥"] },
-  viper: { label: "毒蛇", motto: "信任是别人的弱点。", suits: ["♥", "♠"] },
-  martyr: { label: "殉道者", motto: "如果只能活一个，那就让更好的那个活。", suits: ["♣", "♥"] },
-  naive: { label: "天真者", motto: "大家都是好人。", suits: ["♦", "♥"] },
+export type SkillDimension = "logic" | "math" | "planning" | "memory" | "instruction" | "strategy";
+
+/**
+ * `skill`: chance of answering a task-bank question of that dimension right on one attempt.
+ * It doubles as the bot's lobby ability profile and drives which suit it prefers in the city.
+ */
+export const PERSONAS: Record<Persona, { label: string; motto: string; suits: Suit[]; skill: Record<SkillDimension, number> }> = {
+  guardian: { label: "守夜人", motto: "活下去，然后再说。", suits: ["♦", "♣"], skill: { logic: 0.9, math: 0.85, planning: 0.88, memory: 0.85, instruction: 0.92, strategy: 0.8 } },
+  gambler: { label: "赌徒", motto: "高点数，高回报。", suits: ["♠", "♦"], skill: { logic: 0.75, math: 0.85, planning: 0.7, memory: 0.65, instruction: 0.6, strategy: 0.93 } },
+  diplomat: { label: "外交官", motto: "契约是这座城里唯一的货币。", suits: ["♣", "♥"], skill: { logic: 0.75, math: 0.72, planning: 0.9, memory: 0.85, instruction: 0.88, strategy: 0.75 } },
+  viper: { label: "毒蛇", motto: "信任是别人的弱点。", suits: ["♥", "♠"], skill: { logic: 0.88, math: 0.8, planning: 0.72, memory: 0.7, instruction: 0.65, strategy: 0.92 } },
+  martyr: { label: "殉道者", motto: "如果只能活一个，那就让更好的那个活。", suits: ["♣", "♥"], skill: { logic: 0.72, math: 0.7, planning: 0.85, memory: 0.92, instruction: 0.85, strategy: 0.65 } },
+  naive: { label: "天真者", motto: "大家都是好人。", suits: ["♦", "♥"], skill: { logic: 0.6, math: 0.6, planning: 0.6, memory: 0.65, instruction: 0.7, strategy: 0.55 } },
 };
+
+/** Lobby-style rating (exam scale, 1000 = baseline) implied by a persona's skill. */
+export function personaProfile(persona: Persona): Record<SkillDimension, number> {
+  return Object.fromEntries(Object.entries(PERSONAS[persona].skill).map(([d, p]) => [d, Math.round(1000 + 400 * Math.log10(p / (1 - p)))])) as Record<SkillDimension, number>;
+}
 
 const SUITS: Suit[] = ["♦", "♥", "♣", "♠"];
 
@@ -65,8 +76,12 @@ export function decideRule(persona: Persona, obs: Observation, hint?: NpcHint): 
     res.action = { type: "answer", text: inquiryAnswer(persona, obs) };
     return res;
   }
-  if (obs.trial && (obs.trial.visible as Record<string, unknown>)?.task && legal("answer")?.params?.answer) {
-    res.action = { type: "answer", answer: bankAnswer(persona, hint, rnd) };
+  if (obs.ladder && legal("challenge")) {
+    res.action = ladderChoice(persona, obs, rnd);
+  } else if (obs.ladder) {
+    res.action = { type: "rest" };
+  } else if (obs.trial && (obs.trial.visible as Record<string, unknown>)?.task && legal("answer")?.params?.answer) {
+    res.action = { type: "answer", answer: bankAnswer(persona, hint, rnd, String((obs.trial.visible as Record<string, unknown>).dimension ?? "")) };
   } else if (obs.trial) {
     trialDecision(persona, obs, res, mem, rnd, pick);
   } else {
@@ -437,8 +452,27 @@ function table(obs: Observation) {
  * Task-bank cards: bots cannot read the task, so the runner hands them the reference answer and the
  * persona decides how often they actually get it right. Players never receive this hint.
  */
-const BANK_SKILL: Record<Persona, number> = { guardian: 0.8, diplomat: 0.7, viper: 0.75, martyr: 0.65, gambler: 0.5, naive: 0.35 };
-function bankAnswer(persona: Persona, hint: NpcHint | undefined, rnd: () => number): string {
-  if (hint?.oracle === undefined || rnd() > (BANK_SKILL[persona] ?? 0.6)) return "我不确定。";
+function bankAnswer(persona: Persona, hint: NpcHint | undefined, rnd: () => number, dimension: string): string {
+  const skill = PERSONAS[persona].skill[dimension as SkillDimension] ?? 0.7;
+  if (hint?.oracle === undefined || rnd() > skill) return "我不确定。";
   return typeof hint.oracle === "string" ? hint.oracle : JSON.stringify(hint.oracle);
+}
+
+/**
+ * Ladder: pick the suit that fits the bot's strongest dimensions, preferring the lower next card.
+ * Gatekeepers (faces) delete on failure, so a bot postpones them while it still has easier steps elsewhere.
+ */
+function ladderChoice(persona: Persona, obs: Observation, rnd: () => number): AgentAction {
+  const view = obs.ladder!;
+  if (view.joker.open) return { type: "challenge", suit: "joker" };
+  const skill = PERSONAS[persona].skill;
+  const options = view.suits.filter((s) => s.next);
+  if (!options.length) return { type: "rest" };
+  const score = (s: (typeof options)[number]) => {
+    const fit = s.dimensions.reduce((x, d) => x + (skill[d as SkillDimension] ?? 0.7), 0) / s.dimensions.length;
+    const gate = s.next!.gatekeeper ? 0.25 : 0;
+    return fit * 2 - s.next!.rank * 0.04 - gate - Math.min(3, s.next!.failed ?? 0) * 0.12 + rnd() * 0.15;
+  };
+  const best = [...options].sort((a, b) => score(b) - score(a))[0];
+  return { type: "challenge", suit: best.suit };
 }

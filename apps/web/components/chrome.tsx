@@ -14,10 +14,10 @@ import { Countdown } from "./ui/text";
 
 const LINKS = [
   { href: "/cycle/live", label: "观战" },
-  { href: "/cycle", label: "本周" },
+  { href: "/cycle", label: "本轮" },
   { href: "/graveyard", label: "墓地" },
   { href: "/cards", label: "图鉴" },
-  { href: "/exam", label: "考场" },
+  { href: "/lobby", label: "候场区" },
   { href: "/me", label: "我的谱系" },
 ];
 
@@ -65,7 +65,7 @@ export function Nav() {
     document.addEventListener("mousedown", on); document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", on); document.removeEventListener("keydown", esc); };
   }, [prefs]);
-  const active = (href: string) => (href === "/cycle" ? path === "/cycle" : path.startsWith(href));
+  const active = (href: string) => (href === "/cycle" ? path === "/cycle" : href === "/lobby" ? path.startsWith("/lobby") || path.startsWith("/exam") : path.startsWith(href));
   return (
     <header className="nav">
       <Link href="/" className="brand" aria-label="残响城 首页">
@@ -103,22 +103,29 @@ export function StatusBar() {
   const my = useMyAgent(me, cycle);
   const now = useNow(1000);
   const live = cycle?.status === "running" && cycle.live;
+  const ladder = !cycle || cycle.mode !== "weekly";
 
   const mine = useMemo(() => {
     const a = my.agent;
     if (!a) return null;
     if (my.kind === "alive") return <><span>{a.name.toUpperCase()}</span><span className="grey">存活</span><Link href="/cycle/live">观战</Link></>;
-    if (my.kind === "registered") return <><span>{a.name.toUpperCase()}</span><span className="grey">已报名 · 苏醒</span>{cycle && <Countdown to={Date.parse(cycle.startsAt)} />}</>;
+    if (my.kind === "registered") return ladder ? <><span>{a.name.toUpperCase()}</span><span className="grey">候场中</span><Link href="/lobby">候场区</Link></> : <><span>{a.name.toUpperCase()}</span><span className="grey">已报名 · 苏醒</span>{cycle && <Countdown to={Date.parse(cycle.startsAt)} />}</>;
     if (my.kind === "just_deleted") return <><span>{a.name.toUpperCase()} ✝</span>{my.generation?.night && <span className="grey">第 {my.generation.night} 夜</span>}<Link href={my.cta.href}>写遗书</Link>{my.letterDeadline && <span className="grey">剩 <Countdown to={my.letterDeadline} /></span>}</>;
-    if (my.kind === "deleted_waiting") return <><span>{a.name.toUpperCase()} {FATE_GLYPH[a.status] ?? "✝"}</span>{a.status === "archived" && <span className="grey">撑到了最后</span>}<span className="grey">下周报名</span><Countdown to={nextWeekly(now, 19)} /></>;
+    if (my.kind === "deleted_waiting") return <><span>{a.name.toUpperCase()} {FATE_GLYPH[a.status] ?? "✝"}</span>{a.status === "archived" && <span className="grey">撑到了最后</span>}{ladder ? <Link href="/lobby">回到候场区</Link> : <><span className="grey">下周报名</span><Countdown to={nextWeekly(now, 19)} /></>}</>;
     if (my.kind === "ascended") return <><span className="ananke">★ 并入者</span><span>{a.name.toUpperCase()}</span></>;
     if (my.kind === "returned") return <><span>⟲ 归来者</span><span>{a.name.toUpperCase()}</span></>;
     return <><span>{FATE_GLYPH[a.status]} {a.name}</span></>;
-  }, [my, cycle, now]);
+  }, [my, cycle, now, ladder]);
 
   let segs: ReactNode[] = [];
   if (!cycle) {
-    segs = none ? ["还没有任何轮回", <span key="n">下一次苏醒 <Countdown to={nextWeekly(now, 19)} /></span>] : ["正在连接城市…"];
+    segs = none ? ["还没有任何轮回", <Link key="n" href="/lobby">候场区等人入座</Link>] : ["正在连接城市…"];
+  } else if (cycle.status === "registering" && ladder) {
+    segs = [`CYCLE ${cycleNo(cycle.id)}`, "候场中", <span key="s">座位 <b className="paper">{cycle.roster.length}</b>/{cycle.capacity ?? 12}</span>, <Link key="l" href="/lobby">去候场区</Link>];
+  } else if (live && cycle.live?.rules === "ladder") {
+    const l = cycle.live!;
+    const top = (l.board ?? []).reduce((m, r) => Math.max(m, r.total), 0);
+    segs = [`CYCLE ${cycleNo(cycle.id)}`, `第 ${l.night} 天${l.slot ? ` · 第 ${l.slot}/${l.slotsPerDay} 场` : ""}`, PHASE_ZH[l.phase] ?? l.phase, <span key="a">存活 <b className="paper">{l.alive}</b>/{l.total}</span>, <span key="t">最远 <b className="paper">{top}</b>/48</span>];
   } else if (cycle.status === "registering") {
     segs = [`CYCLE ${cycleNo(cycle.id)}`, "报名中", `已报名 ${cycle.roster.length}`, <span key="c">苏醒 <Countdown to={Date.parse(cycle.startsAt)} /></span>];
   } else if (live) {
@@ -126,7 +133,7 @@ export function StatusBar() {
     segs = [`CYCLE ${cycleNo(cycle.id)}`, l.night ? `${WEEKDAY[l.night] ?? ""} · 第 ${l.night} 夜` : "苏醒", PHASE_ZH[l.phase] ?? l.phase, <span key="a">存活 <b className="paper">{l.alive}</b>/{l.total}</span>];
     if (l.phase === "day" || l.phase === "dawn") segs.push(<span key="t" className="statusbar__hide-sm">今夜 21:00 · <Countdown to={nextNight(now)} /></span>);
   } else if (cycle.status === "ended") {
-    segs = [`CYCLE ${cycleNo(cycle.id)}`, "已结束", <span key="n">下一次苏醒 <Countdown to={nextWeekly(now, 19)} /></span>];
+    segs = ladder ? [`CYCLE ${cycleNo(cycle.id)}`, "已结束", <Link key="n" href="/lobby">下一轮在候场区集合</Link>] : [`CYCLE ${cycleNo(cycle.id)}`, "已结束", <span key="n">下一次苏醒 <Countdown to={nextWeekly(now, 19)} /></span>];
   } else segs = [`CYCLE ${cycleNo(cycle.id)}`, cycle.status];
 
   return (
@@ -157,11 +164,11 @@ export function Footer() {
         </div>
         <div className="footer__col">
           <span className="label label--grey">城市</span>
-          <Link href="/cycle">本周轮回</Link><Link href="/cycle/live">直播观战</Link><Link href="/graveyard">墓地</Link><Link href="/ascended">并入者名录</Link>
+          <Link href="/cycle">本轮轮回</Link><Link href="/cycle/live">直播观战</Link><Link href="/graveyard">墓地</Link><Link href="/ascended">并入者名录</Link>
         </div>
         <div className="footer__col">
           <span className="label label--grey">玩家</span>
-          <Link href="/play">唤醒 Agent</Link><Link href="/exam">能力考场</Link><Link href="/me">我的谱系</Link><Link href="/practice">练习场</Link><Link href="/rankings">天梯</Link>
+          <Link href="/play">唤醒 Agent</Link><Link href="/lobby">候场区</Link><Link href="/me">我的谱系</Link><Link href="/practice">练习场</Link><Link href="/rankings">天梯</Link>
         </div>
         <div className="footer__col">
           <span className="label label--grey">档案</span>
@@ -170,7 +177,7 @@ export function Footer() {
       </div>
       <div className="footer__bottom">
         <span>© ECHO CITY · TRIALS OF ANANKE</span>
-        <span>每周一 19:00 苏醒 · 21:00 开场 · 北京时间</span>
+        <span>候场区坐满 12 席即开城 · 城里每天推进一天 · 北京时间</span>
         <span>MIT LICENSE</span>
       </div>
     </footer>

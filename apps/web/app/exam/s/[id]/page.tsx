@@ -24,7 +24,7 @@ export default function ExamSession({ params }: { params: Promise<{ id: string }
   return (
     <div className="wrap">
       <header className="page-head">
-        <div className="crumbs"><Link href="/exam">考场</Link> / {e ? <Link href={`/exam/e/${e.id}`}>{e.name}</Link> : "—"} / 考卷</div>
+        <div className="crumbs"><Link href="/lobby">候场区</Link> / {e ? <Link href={`/exam/e/${e.id}`}>{e.name}</Link> : "—"} / 考卷</div>
         <div className="row row--between row--end mt-16">
           <div>
             <div className="label label--grey">{d.status === "running" ? "进行中" : d.status === "done" ? "已交卷" : "已中止"} · {new Date(d.createdAt).toLocaleString("zh-CN", { hour12: false })}</div>

@@ -52,7 +52,7 @@ export function createApp(opts: AppOptions) {
     allowInsecureWebhooks: opts.allowInsecureWebhooks ?? false,
     sealer: new Sealer(opts.secretKey),
     now: opts.now,
-    bank: { frontier: () => exam.frontiers(), record: (answers) => exam.recordTrialAnswers(answers) },
+    bank: { frontier: () => exam.frontiers(), record: (answers) => exam.recordTrialAnswers(answers), profile: (agentId, lineageId) => exam.profileFor(agentId, lineageId) },
     mcpTimeoutsMs: opts.mcpTimeoutsMs,
     judgmentBreakMs: opts.judgmentBreakMs,
   });
@@ -136,6 +136,8 @@ export function createApp(opts: AppOptions) {
     };
   };
   route("GET", "/api/cycles", () => store.db.cycles.filter((c) => !c.demo).map((c) => ({ id: c.id, status: c.status, mode: c.mode, startsAt: c.startsAt, endedAt: c.endedAt, agents: c.agentIds.length || store.db.agents.filter((a) => a.cycleId === c.id).length, winner: c.summary?.winner?.name ?? null, ending: c.summary?.ending ?? null, endingTitle: c.summary?.endingTitle ?? null })).reverse());
+  // 候场区: the open lobby, its seats and the ability profiles of the agents waiting there.
+  route("GET", "/api/lobby", () => manager.lobby() ?? { id: null, status: "closed", capacity: 12, seated: 0, fillAt: null, agents: [] });
   route("GET", "/api/cycles/current", () => {
     const c = manager.currentCycle();
     if (!c) throw new ApiError(404, "还没有任何轮回");

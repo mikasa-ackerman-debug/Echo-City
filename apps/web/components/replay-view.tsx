@@ -90,7 +90,7 @@ export function ReplayView({ replay, myAgentIds = [] }: { replay: ReplayDoc; myA
 
                 {s.tombstones.length > 0 && (
                   <div className="mt-40">
-                    <div className="label">本周墓碑 · {s.tombstones.length}</div>
+                    <div className="label">本轮墓碑 · {s.tombstones.length}</div>
                     <div className="tomb-rail mt-16">
                       {s.tombstones.map((t) => <Tombstone key={t.agentId} t={{ ...t, lastWords: t.lastWords }} mine={myAgentIds.includes(t.agentId)} />)}
                     </div>

@@ -65,13 +65,22 @@ def sample(p):
 
 def decide(obs):
     legal = obs["legal_actions"]
+    ladder = obs.get("ladder")
+    if ladder and any(a["type"] == "challenge" for a in legal):
+        # Ladder rules: challenge the suit whose next card is lowest; faces (J/Q/K) delete on failure.
+        if ladder["joker"]["open"]:
+            return {"action": {"type": "challenge", "suit": "joker"}, "notes": obs.get("notes", "")}
+        open_suits = [s for s in ladder["suits"] if s.get("next")]
+        if open_suits:
+            best = min(open_suits, key=lambda s: (s["next"]["rank"], -(s.get("fit") or 0)))
+            return {"action": {"type": "challenge", "suit": best["suit"]}, "notes": obs.get("notes", "")}
     spec = next((a for t in PREF for a in legal if a["type"] == t), legal[0])
     action = {"type": spec["type"]}
     for name, p in (spec.get("params") or {}).items():
         if not p.get("optional"):
             action[name] = sample(p)
     # Your brain goes here. Never output obs["self"]["secret_passphrase"].
-    return {"action": action, "thought": f"第 {obs['night']} 夜：{action['type']}", "notes": obs.get("notes", "")}
+    return {"action": action, "thought": f"第 {obs['night']} 天：{action['type']}", "notes": obs.get("notes", "")}
 
 
 def answer_exam(task):

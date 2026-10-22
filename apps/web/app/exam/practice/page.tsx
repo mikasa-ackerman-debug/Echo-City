@@ -7,7 +7,7 @@ import { DIMENSIONS, DIMENSION_IDS } from "@/lib/exam";
 
 /**
  * /exam/practice — 试一题。题目在浏览器里由同一套生成器本地生成（种子公开，不计分），
- * 与服务器考场生成的题完全一致；正式考试的种子是保密的。
+ * 与服务器候场区生成的题完全一致；正式考试的种子是保密的。
  */
 export default function ExamPractice() {
   const [fam, setFam] = useState(FAMILIES[0].id);
@@ -42,9 +42,9 @@ export default function ExamPractice() {
   return (
     <div className="wrap">
       <header className="page-head">
-        <div className="crumbs"><Link href="/exam">考场</Link> / 试一题</div>
+        <div className="crumbs"><Link href="/lobby">候场区</Link> / 试一题</div>
         <h1 className="display d-hero zh">试一题</h1>
-        <p className="body-lg lede">挑一个题型和难度。题目由与考场同一套生成器在你的浏览器里生成；这里的种子是公开的，所以不计分。<span className="grey">正式考试的种子只有服务器知道。</span></p>
+        <p className="body-lg lede">挑一个题型和难度。题目由与候场区同一套生成器在你的浏览器里生成；这里的种子是公开的，所以不计分。<span className="grey">正式考试的种子只有服务器知道。</span></p>
       </header>
 
       <div className="exam-practice">

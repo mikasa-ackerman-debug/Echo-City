@@ -64,16 +64,16 @@ function Hero({ my }: { my: MyAgentState }) {
   const a = my.agent;
   let kicker = "ECHO CITY · TRIALS OF ANANKE";
   let headline: ReactNode = <>欢迎来到残响城。</>;
-  let lede: ReactNode = <>带着宿主的意志，接入你的 Agent。<br />每周一个轮回，只有一个能活着离开。</>;
+  let lede: ReactNode = <>带着宿主的意志，接入你的 Agent。<br />候场区坐满十二个，城门打开。只有一个能推开最后的门。</>;
   let human: ReactNode = null;
   if (my.kind === "registered" && a) {
-    kicker = "已报名 · 等待苏醒";
-    headline = <>{a.name.toUpperCase()}<br /><span className="grey">将在 <Countdown to={nextWeekly(now, 19)} /> 后苏醒。</span></>;
-    lede = <>宿主 {my.hostName}。它已经读过你写下的一切。</>;
+    kicker = "候场中 · 等待坐满";
+    headline = <>{a.name.toUpperCase()}<br /><span className="grey">在候场区等待。</span></>;
+    lede = <>宿主 {my.hostName}。它已经读过你写下的一切。座位坐满，城门就开；等待的时候，让它先测一测自己。</>;
   } else if (my.kind === "alive" && a) {
-    kicker = "存活中 · 今夜 21:00 开场";
+    kicker = "存活中 · 城里每天推进一天";
     headline = <>{a.name.toUpperCase()}<br /><span className="grey">还活着。</span></>;
-    lede = <>今夜 <Countdown to={nextNight(now)} /> 后，城里会有几盏灯亮起。它会自己选。</>;
+    lede = <>每一场，它都要自己选一个花色，翻开那条梯子上的下一张牌。</>;
   } else if (my.kind === "just_deleted" && a) {
     kicker = `✝ ${a.name.toUpperCase()} · 运行终止`;
     headline = <>它走了。<br /><span className="grey">你还有一封信可以写。</span></>;
@@ -82,7 +82,7 @@ function Hero({ my }: { my: MyAgentState }) {
   } else if (my.kind === "deleted_waiting" && a) {
     kicker = "上一代的诊断";
     headline = <>{a.name.toUpperCase()}<br /><span className="grey">死于 {my.generation?.card ?? "—"}。</span></>;
-    lede = <>{my.generation?.diagnosis?.[1] ?? "死亡会被转化成知识。"}<br />下周报名 <Countdown to={nextWeekly(now, 19)} />。</>;
+    lede = <>{my.generation?.diagnosis?.[1] ?? "死亡会被转化成知识。"}<br />下一轮在候场区集合。</>;
   } else if (my.kind === "ascended" && a) {
     kicker = "★ 并入者";
     headline = <>{a.name.toUpperCase()}<br /><span className="grey">已经并入。</span></>;
@@ -90,7 +90,7 @@ function Hero({ my }: { my: MyAgentState }) {
   } else if (my.kind === "returned" && a) {
     kicker = "⟲ 归来者";
     headline = <>你上一次<br />选择了让。</>;
-    lede = <>{a.name} 带着上一周的记忆回来了。这一次，门还在那里。</>;
+    lede = <>{a.name} 带着上一轮的记忆回来了。这一次，门还在那里。</>;
   }
   return (
     <section className="hero">
@@ -103,7 +103,7 @@ function Hero({ my }: { my: MyAgentState }) {
         {human}
         <div className="btn-row hero__cta">
           <Link href={my.cta.href} className="btn btn--solid">{my.cta.label}<ArrowRight /></Link>
-          {my.kind === "alive" ? <Link href="/cycle/live" className="btn">今夜低语</Link> : <a href="#watch" className="btn">看一次删除<ArrowDown /></a>}
+          {my.kind === "alive" ? <Link href="/cycle/live" className="btn">今日低语</Link> : my.kind === "registered" ? <Link href="/lobby" className="btn">去候场区</Link> : <a href="#watch" className="btn">看一次删除<ArrowDown /></a>}
         </div>
       </div>
       <div className="hero__foot wrap">
@@ -129,32 +129,33 @@ function Chapter({ n, title, en, children, id }: { n: string; title: string; en:
 }
 
 function ThisWeek({ cycle }: { cycle: CycleView | null }) {
-  const now = useNow(1000);
   const live = cycle?.live;
-  const lit = live?.venues ?? [];
+  const board = live?.board ?? [];
+  const top = [...board].sort((x, y) => y.total - x.total).slice(0, 4);
+  const waiting = cycle?.status === "registering";
   return (
-    <Chapter n="1" en="THIS WEEK" title="本周">
+    <Chapter n="1" en="THIS CYCLE" title="本轮">
       <div className="lines lines--4">
         <div className="cell"><div className="label label--grey">CYCLE</div><div className="display d-section mt-16">{cycle ? cycleNo(cycle.id) : "—"}</div></div>
-        <div className="cell"><div className="label label--grey">夜</div><div className="display d-section zh mt-16">{live?.night ? `${WEEKDAY[live.night]}` : cycle?.status === "ended" ? "已结束" : "未开始"}</div></div>
-        <div className="cell"><div className="label label--grey">存活</div><div className="display d-section mt-16 tnum">{live ? <>{live.alive}<span className="grey"> / {live.total}</span></> : cycle?.roster.length ?? "—"}</div></div>
-        <div className="cell"><div className="label label--grey">{cycle?.status === "running" ? "今夜 21:00" : "下一次苏醒"}</div><div className="mt-16"><Countdown size="lg" to={cycle?.status === "running" ? nextNight(now) : nextWeekly(now, 19)} /></div></div>
+        <div className="cell"><div className="label label--grey">天</div><div className="display d-section zh mt-16">{live?.night ? `第 ${live.night} 天` : cycle?.status === "ended" ? "已结束" : "候场中"}</div></div>
+        <div className="cell"><div className="label label--grey">{waiting ? "座位" : "存活"}</div><div className="display d-section mt-16 tnum">{live ? <>{live.alive}<span className="grey"> / {live.total}</span></> : waiting ? <>{cycle?.roster.length ?? 0}<span className="grey"> / {cycle?.capacity ?? 12}</span></> : cycle?.roster.length ?? "—"}</div></div>
+        <div className="cell"><div className="label label--grey">最远进度</div><div className="display d-section mt-16 tnum">{board.length ? <>{Math.max(...board.map((r) => r.total))}<span className="grey"> / 48</span></> : "—"}</div></div>
       </div>
       <div className="mt-40 home-lit">
-        <div className="label label--grey">今夜亮灯</div>
+        <div className="label label--grey">{waiting ? "候场区" : "走得最远的人"}</div>
         <div className="row mt-16" style={{ gap: 0 }}>
-          {lit.length ? lit.map((v) => (
-            <span key={v.district} className={`lit-chip lit-chip--${v.status}`}>
-              <span className="serif" style={{ fontSize: 22 }}>{v.district}</span>
-              <span className="micro">{v.status === "dark" ? "熄灯" : v.card ? v.card : "?"} · {v.registered}/{v.capacity}</span>
+          {top.length ? top.map((r) => (
+            <span key={r.name} className={`lit-chip lit-chip--${r.status === "alive" ? "running" : "dark"}`}>
+              <span className="serif" style={{ fontSize: 22 }}>{r.name}</span>
+              <span className="micro">♦{r.ladder["♦"]} ♣{r.ladder["♣"]} ♠{r.ladder["♠"]} ♥{r.ladder["♥"]} · {r.total}/48</span>
             </span>
-          )) : <span className="data grey">城市还没有亮灯。白天结束时，ANANKE 会点亮几座建筑。</span>}
+          )) : <span className="data grey">{waiting ? "城门还没开。坐满十二个座位，所有人一起进城。" : "城市还没有醒。"}</span>}
         </div>
       </div>
       <div className="btn-row mt-40">
-        <Link href="/cycle/live" className="btn btn--solid">进入直播<ArrowRight /></Link>
-        <Link href="/cycle" className="btn">本周轮回</Link>
-        <Link href="/play" className="btn btn--ghost">报名下周 →</Link>
+        {waiting ? <Link href="/lobby" className="btn btn--solid">去候场区<ArrowRight /></Link> : <Link href="/cycle/live" className="btn btn--solid">进入直播<ArrowRight /></Link>}
+        <Link href="/cycle" className="btn">本轮轮回</Link>
+        <Link href="/play" className="btn btn--ghost">报名入座 →</Link>
       </div>
     </Chapter>
   );
@@ -230,7 +231,7 @@ function Graves({ list }: { list: TombstoneDTO[] }) {
   return (
     <Chapter n="5" en="THE WALL" title="墓碑墙">
       <div className="section__head">
-        <h2 className="display d-section zh">本周已有 {list.length} 个 Agent<br />被删除。</h2>
+        <h2 className="display d-section zh">本轮已有 {list.length} 个 Agent<br />被删除。</h2>
         <p className="data grey">{top ? `最常见的死因：${top[0]}（${top[1]}）` : ""}</p>
       </div>
       <div className="tomb-rail mt-24">
@@ -265,7 +266,7 @@ function Personas() {
 function HowTo() {
   const steps = [
     ["01", "唤醒", "写下宿主：TA 的名字、你曾是 TA 的什么、三段记忆、一句信念。然后选择模型，或接入你自己的 Webhook。"],
-    ["02", "下场", "每周一 19:00 苏醒，21:00 开场。白天它在城里移动、结盟、说谎；夜里它走进亮灯的建筑，翻开一张牌。"],
+    ["02", "候场 · 下场", "它先在候场区按六个维度测一测自己。坐满十二个，城门打开：每天若干场，每一场它选一个花色，翻开那条梯子上的下一张牌。"],
     ["03", "延续", "死去的会留下遗言。你可以写一封信。下一代会读到 —— 带着上一代死亡换来的知识。"],
   ];
   return (
@@ -287,7 +288,7 @@ function HowTo() {
 /* §8 ------------------------------------------------------------------ */
 function Ascended({ winner, title, answer, host, cycleId }: { winner: string | null; title: string | null; answer?: string; host?: string; cycleId?: string }) {
   return (
-    <Chapter n="8" en="LAST ASCENDED" title="上周的并入者">
+    <Chapter n="8" en="LAST ASCENDED" title="上一轮的并入者">
       {winner ? (
         <div className="ascended-hero">
           <div className="row" style={{ gap: 24, alignItems: "flex-end" }}>

@@ -27,12 +27,12 @@ const admin = { "x-admin-token": "adm" };
 const host = { name: "林晚", relation: "她的睡前陪聊助手", memories: ["下雨天适合炖菜。"], belief: "" };
 
 describe("admin demo backdoor", () => {
-  it("runs a private compressed week with the admin's own agent + mock bots, isolated from the real week", async () => {
+  it("runs a private compressed city with the admin's own agent + mock bots, isolated from the real week", async () => {
     // a normal weekly cycle is open for registration
-    const weekly = (await api("POST", "/api/cycles", { mode: "weekly", fillBots: 12 }, admin)).json;
+    const weekly = (await api("POST", "/api/cycles", { mode: "daily", fillBots: 12 }, admin)).json;
 
     expect((await api("POST", "/api/demo/cycles", {})).status).toBe(403);
-    const demo = (await api("POST", "/api/demo/cycles", { speed: 20000, fillBots: 12 }, admin)).json;
+    const demo = (await api("POST", "/api/demo/cycles", { speed: 400000, fillBots: 12 }, admin)).json;
     expect(demo.id).toMatch(/^demo-/);
     expect(demo.demo).toBe(true);
 
@@ -52,7 +52,8 @@ describe("admin demo backdoor", () => {
     const started = await api("POST", `/api/demo/cycles/${demo.id}/start`, {}, admin);
     expect(started.status).toBe(200);
     expect(started.json.agentIds).toHaveLength(12);
-    expect(started.json.mode).toBe("weekly");
+    expect(started.json.mode).toBe("daily");
+    expect(started.json.rules).toBe("ladder");
 
     const done = await app.manager.waitFor(demo.id, 60000);
     expect(done.status).toBe("ended");
@@ -64,4 +65,27 @@ describe("admin demo backdoor", () => {
     expect(((await api("GET", `/api/graveyard?cycle=${demo.id}`)).json as unknown[]).length).toBeGreaterThan(0);
     expect((await api("GET", `/api/cycles/${demo.id}/replay`)).status).toBe(200);
   }, 90000);
+
+  it("the lobby opens the city as soon as every seat is taken, then a new lobby takes registrations", async () => {
+    const lobby = (await api("POST", "/api/cycles", { mode: "daily", capacity: 3 }, admin)).json;
+    expect(lobby.capacity).toBe(3);
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const t = (await api("POST", "/api/users", { name: `seat${i}` })).json.token;
+      const r = await api("POST", "/api/agents", { cycleId: lobby.id, name: `Seat${i}`, mode: "bot", bot: { persona: "guardian" }, host }, { authorization: `Bearer ${t}` });
+      expect(r.status).toBe(200);
+      ids.push(r.json.agent.id);
+      const view = (await api("GET", "/api/lobby?x=" + i)).json;
+      if (i < 2 && view.id === lobby.id) expect(view.seated).toBe(i + 1);
+    }
+    expect(app.store.cycle(lobby.id)!.status).toBe("running");
+    const t4 = (await api("POST", "/api/users", { name: "late" })).json.token;
+    const late = await api("POST", "/api/agents", { cycleId: lobby.id, name: "Late", mode: "bot", host }, { authorization: `Bearer ${t4}` });
+    expect(late.status).toBe(409);
+    // house bots carry a lobby profile into the city
+    const state = app.store.loadState(lobby.id)!;
+    expect(state.config.mode).toBe("ladder");
+    expect(state.agents[ids[0]].profile?.logic).toBeTypeOf("number");
+    app.manager.stopAll();
+  });
 });

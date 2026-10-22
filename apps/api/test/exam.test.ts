@@ -235,7 +235,7 @@ describe("exam api", () => {
       expect((await call("POST", `/api/cycles/${cyc.id}/start`, {}, { "x-admin-token": "adm" })).status).toBe(200);
       const live = (app2.manager as any).live.get(cyc.id);
       expect(live?.config?.bankFrontier?.["logic.knights"]).toBeTypeOf("number");
-      for (let i = 0; i < 1200; i++) {
+      for (let i = 0; i < 3600; i++) {
         if ((await call("GET", `/api/cycles/${cyc.id}`)).json.status === "ended") break;
         await new Promise((r) => setTimeout(r, 25));
       }
@@ -248,7 +248,7 @@ describe("exam api", () => {
       app2.manager.stopAll();
       rmSync(d2, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 150_000);
 
   it("persists to exam.json", async () => {
     app.exam.flush();

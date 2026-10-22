@@ -202,8 +202,8 @@ export class ExamService {
     if (!a || a.ownerId !== userId) throw new ApiError(404, "Agent 不存在");
     const existing = mine.find((e) => e.agentId === a.id);
     if (existing) return { examinee: publicExaminee(existing) };
-    if (a.mode === "bot") throw new ApiError(400, "规则 Bot 不参加考场：它们只会按人格行动，不会解题");
-    if (a.mode === "mcp") throw new ApiError(400, "MCP Agent 暂不支持导入考场：请以拉取模式（pull）报名考生");
+    if (a.mode === "bot") throw new ApiError(400, "规则 Bot 不参加候场区测试：它们只会按人格行动，不会解题");
+    if (a.mode === "mcp") throw new ApiError(400, "MCP Agent 暂不支持导入候场区测试：请以拉取模式（pull）报名考生");
     if (mine.length >= MAX_EXAMINEES_PER_USER) throw new ApiError(409, `每个账号最多 ${MAX_EXAMINEES_PER_USER} 个考生`);
     let name = a.name;
     for (let i = 2; this.db.examinees.some((e) => e.name.toLowerCase() === name.toLowerCase()); i++) name = `${a.name}·${i}`;
@@ -452,7 +452,19 @@ export class ExamService {
   }
 
   /**
-   * Answers given on bank-backed trial cards in the weekly cycle. They teach the bank how hard each level
+   * 候场区 ability profile for a game agent: the ratings of the examinee imported from it
+   * (or, failing that, from the same lineage). Only dimensions that were actually tested are returned.
+   */
+  profileFor(agentId: string, lineageId?: string): Record<string, number> | undefined {
+    const pool = this.db.examinees.filter((e) => e.agentId === agentId || (!!lineageId && e.lineageId === lineageId));
+    const e = pool.sort((a, b) => Number(b.agentId === agentId) - Number(a.agentId === agentId) || b.attempts - a.attempts)[0];
+    if (!e) return undefined;
+    const out = Object.fromEntries(DIMENSION_IDS.filter((d) => e.abilities[d].n > 0).map((d) => [d, Math.round(e.abilities[d].r)]));
+    return Object.keys(out).length ? out : undefined;
+  }
+
+  /**
+   * Answers given on bank-backed trial cards in the city. They teach the bank how hard each level
    * really is, and count toward the ability of an examinee imported from that agent.
    */
   recordTrialAnswers(answers: Array<{ agentId: string; family: string; level: number; score: number }>) {

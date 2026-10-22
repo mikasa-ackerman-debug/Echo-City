@@ -159,6 +159,27 @@ export interface CityView {
   amendment?: string;
 }
 
+/** Ladder rules: the agent's progress on the four suit ladders and what it may challenge now. */
+export interface LadderView {
+  day: number;
+  slot: number;
+  slots_per_day: number;
+  suits: Array<{
+    suit: Suit;
+    name: string;
+    theme: string;
+    dimensions: string[];
+    cleared: number;
+    /** Mean lobby rating over this suit's dimensions (null = untested). */
+    fit: number | null;
+    next: null | { card: string; trial_id: string; name: string; tests: string; rank: number; gatekeeper: boolean; on_fail: string; reward: number; min_players: number; /** Your failed attempts on this card so far. */ failed: number };
+  }>;
+  joker: { open: boolean; card: string; name: string; tests: string };
+  /** Lobby ability profile (rating per dimension; null = untested). */
+  profile: Record<string, number | null>;
+  board: Array<{ name: string; cleared: number; alive: boolean; you: boolean }>;
+}
+
 export interface Observation {
   protocol: typeof PROTOCOL_VERSION;
   cycle_id: string;
@@ -171,6 +192,7 @@ export interface Observation {
   alive_count: number;
   self: SelfView;
   city?: CityView;
+  ladder?: LadderView;
   trial?: TrialView;
   question?: string;
   inbox: InboxMessage[];

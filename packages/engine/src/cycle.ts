@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 import { validateWhisper } from "./whisper";
+import { consumeLadderChoices, echoResponse, isLadder, runLadderStage } from "./ladder";
 
 /* ------------------------------------------------------------------ */
 /* Create                                                              */
@@ -50,7 +51,7 @@ export function createCycle(opts: { id: string; seed: string; roster: RosterEntr
   }
   const rng = Rng.fromSeed(opts.seed);
   const { districts, map } = buildCity(rng);
-  const amendment = config.amendment ? AMENDMENTS.find((a) => a.id === config.amendment) ?? null : rng.pick(AMENDMENTS);
+  const amendment = config.mode === "ladder" ? null : config.amendment ? AMENDMENTS.find((a) => a.id === config.amendment) ?? null : rng.pick(AMENDMENTS);
   const agents: Record<string, AgentState> = {};
   const spawn = districts.filter((d) => d !== ARK);
   const badgeHolders = new Set(rng.shuffle(opts.roster.map((r) => r.id)).slice(0, Math.min(2, opts.roster.length)));
@@ -97,6 +98,7 @@ export function createCycle(opts: { id: string; seed: string; roster: RosterEntr
       returnStreak: r.returned ? countReturnStreak(r.lineage?.previous ?? []) || 1 : 0,
       yielded: false,
       answers: [],
+      ...(config.mode === "ladder" ? { ladder: { "♦": 0, "♣": 0, "♠": 0, "♥": 0 }, profile: r.profile ? { ...r.profile } : undefined } : {}),
       stats: { trials: 0, passed: 0, bySuit: {}, lies: 0, truths: 0, leaks: 0, pactsKept: 0, pactsBroken: 0 },
     };
   }
@@ -153,6 +155,7 @@ export function advance(state: CycleState, input: CycleInput = {}): AdvanceResul
 /** Returns true when the engine must wait for external input (or the cycle ended). */
 function runStage(k: K): boolean {
   const s = k.s;
+  if (isLadder(s)) return runLadderStage(k);
   switch (s.stage) {
     case "begin":
       return stageBegin(k);
@@ -413,7 +416,7 @@ function stageTrialStart(k: K): boolean {
   return false;
 }
 
-function startTrial(k: K, venueId: string, district: string, trialId: string, players: string[]) {
+export function startTrial(k: K, venueId: string, district: string, trialId: string, players: string[]) {
   const s = k.s;
   const def = getTrial(trialId);
   const card = cardLabel(def.suit, def.rank);
@@ -478,7 +481,7 @@ function trialCtx(k: K, venueId: string, suit: Suit | "joker"): TrialCtx {
 
 /* ---------------- trial loop ---------------- */
 
-function stageTrial(k: K): boolean {
+export function stageTrial(k: K): boolean {
   const s = k.s;
   s.pendingRequests = {};
   for (const t of s.trials) {
@@ -533,6 +536,27 @@ function stageTrial(k: K): boolean {
 
 /* ---------------- settle ---------------- */
 
+/** Close a finished trial once: compute its result, announce it and consume items. Null if already settled. */
+export function settleTrialHeader(k: K, t: ActiveTrial): ReturnType<ReturnType<typeof getTrial>["result"]> | null {
+  const s = k.s;
+  if ((t as ActiveTrial & { settled?: boolean }).settled) return null;
+  (t as ActiveTrial & { settled?: boolean }).settled = true;
+  const def = getTrial(t.trialId);
+  const r = def.result(t.state);
+  t.result = r;
+  k.emit("trial_end", { venue: t.venueId, card: t.card, trial: t.trialId, outcomes: Object.fromEntries(Object.entries(r.outcomes).map(([id, o]) => [nameOf(s, id), o])), summary: r.summary }, { venue: t.venueId, text: r.summary });
+  k.emit("trial_reveal", { venue: t.venueId, state: publicTrialState(t.state, s) }, { venue: t.venueId, vis: t.trialId === "heart-Q" ? "after_cycle" : "after_trial" });
+  for (const [id, items] of Object.entries(r.consumed ?? {})) {
+    const a = s.agents[id];
+    if (!a) continue;
+    for (const it of items) {
+      const i = a.items.indexOf(it);
+      if (i >= 0) a.items.splice(i, 1);
+    }
+  }
+  return r;
+}
+
 function stageSettle(k: K): boolean {
   const s = k.s;
   setPhase(k, isFinaleNight(s) ? (s.night === s.config.numberNights + 1 ? "judgment" : "joker") : "settle");
@@ -542,20 +566,9 @@ function stageSettle(k: K): boolean {
     if (s.agents[id].strikes >= s.config.maxStrikes) deleteAgent(k, id, "signal_lost");
   }
   for (const t of s.trials) {
-    if ((t as ActiveTrial & { settled?: boolean }).settled) continue;
-    (t as ActiveTrial & { settled?: boolean }).settled = true;
+    const r = settleTrialHeader(k, t);
+    if (!r) continue;
     const def = getTrial(t.trialId);
-    const r = def.result(t.state);
-    t.result = r;
-    k.emit("trial_end", { venue: t.venueId, card: t.card, trial: t.trialId, outcomes: Object.fromEntries(Object.entries(r.outcomes).map(([id, o]) => [nameOf(s, id), o])), summary: r.summary }, { venue: t.venueId, text: r.summary });
-    k.emit("trial_reveal", { venue: t.venueId, state: publicTrialState(t.state, s) }, { venue: t.venueId, vis: t.trialId === "heart-Q" ? "after_cycle" : "after_trial" });
-    for (const [id, items] of Object.entries(r.consumed ?? {})) {
-      const a = s.agents[id];
-      for (const it of items) {
-        const i = a.items.indexOf(it);
-        if (i >= 0) a.items.splice(i, 1);
-      }
-    }
     for (const [id, outcome] of Object.entries(r.outcomes)) {
       const a = s.agents[id];
       if (!a || a.status !== "alive") continue;
@@ -654,7 +667,7 @@ function stageWhisper(k: K): boolean {
 
 /* ---------------- inquiry ---------------- */
 
-function stageInquiry(k: K): boolean {
+export function stageInquiry(k: K): boolean {
   const s = k.s;
   setPhase(k, "inquiry");
   const w = s.winner && s.agents[s.winner];
@@ -687,7 +700,7 @@ function stageInquiry(k: K): boolean {
 
 /* ---------------- ending ---------------- */
 
-function stageEnding(k: K): boolean {
+export function stageEnding(k: K): boolean {
   const s = k.s;
   setPhase(k, "ended");
   let ending: Ending = "none";
@@ -770,7 +783,7 @@ function consume(k: K, input: CycleInput) {
   for (const [id, req] of Object.entries(pending)) {
     const a = s.agents[id];
     if (!a || a.status !== "alive") continue;
-    const raw = input.responses?.[id] ?? null;
+    const raw = a.echo ? echoResponse(s, id) : input.responses?.[id] ?? null;
     let action = req.defaultAction;
     let messages: TrialInput["messages"] = [];
     let valid = false;
@@ -798,7 +811,9 @@ function consume(k: K, input: CycleInput) {
   }
 
   const ctxKind = Object.values(pending)[0]?.context;
-  if (ctxKind === "day") {
+  if (ctxKind === "day" && isLadder(s)) {
+    consumeLadderChoices(k, parsed);
+  } else if (ctxKind === "day") {
     for (const id of k.rng.shuffle(s.order)) {
       const p = parsed[id];
       if (!p) continue;
@@ -943,15 +958,15 @@ function resolvePactExpiry(k: K) {
 /* helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function nextRequestId(s: CycleState, id: string) {
+export function nextRequestId(s: CycleState, id: string) {
   s.requestCounter++;
   return `${s.id}:${s.night}:${s.requestCounter}:${id}`;
 }
 
-function waitAgents(s: CycleState) {
+export function waitAgents(s: CycleState) {
   s.waiting = {
     kind: "agents",
-    requests: Object.entries(s.pendingRequests).map(([agentId, r]) => ({ agentId, requestId: r.requestId, context: r.context, venueId: r.venueId, timeout: r.timeout })),
+    requests: Object.entries(s.pendingRequests).filter(([agentId]) => !s.agents[agentId]?.echo).map(([agentId, r]) => ({ agentId, requestId: r.requestId, context: r.context, venueId: r.venueId, timeout: r.timeout })),
   };
 }
 

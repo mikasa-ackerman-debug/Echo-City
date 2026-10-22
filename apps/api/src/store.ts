@@ -61,7 +61,19 @@ export interface CycleRec {
   id: string;
   seed: string;
   status: CycleStatus;
-  mode: "weekly" | "fast";
+  /**
+   * daily: current rules — a lobby (候场区) that opens the city as soon as `capacity` agents are seated,
+   *        then one city day per real day on the suit ladders.
+   * fast:  same ladder rules, paced by step delay (bot demos, tests).
+   * weekly: legacy Monday–Sunday city (kept for old replays and the MCP soak tests).
+   */
+  mode: "weekly" | "fast" | "daily";
+  /** Engine rules for this cycle (default: ladder unless mode is weekly). */
+  rules?: "ladder" | "weekly";
+  /** Lobby seats: the city opens when this many agents are registered (daily mode). */
+  capacity?: number;
+  /** Lobby: when house bots may take the empty seats (ISO). Absent = never. */
+  fillAt?: string;
   /** ISO time of Monday 19:00 (weekly) or creation (fast). */
   startsAt: string;
   createdAt: string;

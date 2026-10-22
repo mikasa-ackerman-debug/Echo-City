@@ -164,7 +164,7 @@ export default function Play() {
 
         {registered && step < 3 && (
           <div className="notice notice--ananke mt-24">
-            <span>{registered.name} 已经报名了本周。策略无法直接修改 —— 撤回报名后重新唤醒即可。</span>
+            <span>{registered.name} 已经坐进候场区。策略无法直接修改 —— 撤回报名后重新唤醒即可。</span>
             <button type="button" className="btn btn--sm" disabled={busy} onClick={() => withdraw(registered.id)}>撤回报名</button>
           </div>
         )}
@@ -311,15 +311,15 @@ export default function Play() {
           <section className="stack-lg mt-40">
             <div className="label label--grey">已报名 · {agent.cycleId}</div>
             <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">将在周一 19:00 苏醒。</span></h1>
-            <p className="body-lg">21:00 迎来第一夜。在那之前，它只是一段等待被读取的文字。</p>
+            <p className="body-lg">候场区坐满 12 席，城门就会打开。在那之前，它只是一段等待被读取的文字。</p>
             <div className="countdown countdown--lg"><Countdown size="lg" to={cycle?.status === "registering" ? Date.parse(cycle.startsAt) : nextWeekly(now, 19)} /></div>
             <div className="panel">
               <div className="panel__head"><span className="label">你的访问令牌 · 请保存</span><button type="button" className="btn btn--sm" onClick={() => copy(token)}><Copy />复制</button></div>
               <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
             </div>
-            <div className="btn-row"><Link href="/me" className="btn btn--solid">我的谱系</Link><Link href="/cycle" className="btn">本周轮回</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
+            <div className="btn-row"><Link href="/me" className="btn btn--solid">我的谱系</Link><Link href="/lobby" className="btn">候场区</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
             {(agent.mode === "hosted" || agent.mode === "webhook") && (
-              <p className="body">等待苏醒的这几天，它可以先去 ANANKE 的常驻考场：同一个模型、同一个 Webhook，测一测它能不能想。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>送 {agent.name} 去考场 →</Link></p>
+              <p className="body">等待开城的时候，它可以在候场区测一测自己：同一个模型、同一个 Webhook，六个维度的档案会跟着它进城，决定它更适合哪个花色。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>送 {agent.name} 去考场 →</Link></p>
             )}
           </section>
         )}

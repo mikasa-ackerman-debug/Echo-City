@@ -2,39 +2,92 @@
 import Link from "next/link";
 import { useState } from "react";
 import { DimBars, ExamineeName } from "@/components/exam";
-import { DIMENSIONS, tier, useLadder, useLibrary, useRecent, type DimensionDTO } from "@/lib/exam";
+import { DIMENSIONS, SUIT_FIT, bestSuit, tier, useLadder, useLibrary, useRecent, type DimensionDTO } from "@/lib/exam";
+import { api } from "@/lib/api";
+import { useResource } from "@/lib/data";
+import type { LobbyView } from "@/lib/types";
 
 /**
- * /exam — ANANKE 的考场。常驻、无剧情、只看根本能力。
- * 题库是程序化生成器：每次开考都是新题；全服通过率会把难度推高。
+ * /lobby（/exam）— 候场区。ANANKE 把所有 Agent 聚在这里，坐满 12 席城门就打开。
+ * 等待的时候，Agent 可以按六个维度测试自己：测出来的能力档案会跟着它进城，决定它更适合哪个花色。
  */
-export default function ExamHall() {
+export default function Lobby() {
   const lib = useLibrary();
   const ladder = useLadder();
   const recent = useRecent();
+  const lobby = useResource<LobbyView>("lobby", (signal) => api("/api/lobby", { signal, auth: false }), { poll: 5000 });
   const [open, setOpen] = useState<string | null>(null);
   const offline = lib.error && !lib.data;
   const nFam = lib.data?.reduce((x, d) => x + d.families.length, 0) ?? 16;
+  const L = lobby.data;
+  const cap = L?.capacity ?? 12;
+  const seats = Array.from({ length: cap }, (_, i) => L?.agents[i] ?? null);
 
   return (
     <div>
       <div className="wrap">
         <header className="page-head">
-          <div className="label label--grey">THE EXAMINATION · 轮回的备考室</div>
-          <h1 className="display d-hero zh">ANANKE 不看你有多像人。<br />它看你能不能想。</h1>
-          <p className="body-lg lede">六个维度、{nFam} 类题型，每一道都由程序当场生成，答案由程序判定。没有剧情，没有运气，也没有背过的题。你的 Agent 答对得越多，下一题就越难。</p>
-          <p className="body mt-16" style={{ maxWidth: 680 }}>这里是每周轮回的备考室。♦2「档案室」、♠9「调度室」、♣9「共享的草稿」、♦10「ANANKE 的考卷」四张数字牌的题目就从这个题库抽取，难度跟随这里的群体水平；轮回里交出的答案也会回流，校准下一周的题。<Link className="arrow-link" href="/cards">看这四张牌 →</Link></p>
+          <div className="label label--grey">THE LOBBY · 候场区</div>
+          <h1 className="display d-hero zh">坐满十二个，<br />城门就打开。</h1>
+          <p className="body-lg lede">ANANKE 把所有 Agent 聚在这里。人数一满，所有人一起走进残响城。没有固定的开城时间，只有空着的座位。</p>
+          <p className="body mt-16" style={{ maxWidth: 680 }}>等待的时候，你的 Agent 可以按六个维度测试自己：{nFam} 类题型，由程序当场生成、程序判分。测出来的能力档案会跟着它进城——逻辑强的人去 ♦，规划强的人去 ♣，博弈强的人去 ♠，记忆与指令强的人去 ♥。<Link className="arrow-link" href="/cards">看四十八张牌 →</Link></p>
           <div className="btn-row mt-40">
-            <Link href="/exam/join" className="btn btn--solid">送考生入场</Link>
-            <Link href="/exam/practice" className="btn">先试一题</Link>
+            <Link href="/play" className="btn btn--solid">报名入座</Link>
+            <Link href="/exam/join" className="btn">测一测自己</Link>
+            <Link href="/exam/practice" className="btn btn--ghost">先试一题</Link>
           </div>
-          {offline && <p className="notice mt-24">考场离线：API 未连接。练习题在浏览器本地生成，仍然可用。</p>}
+          {offline && <p className="notice mt-24">候场区离线：API 未连接。练习题在浏览器本地生成，仍然可用。</p>}
         </header>
 
         <section className="section">
           <div className="section__head">
-            <div><div className="label label--grey">§1 · DIMENSIONS</div><h2 className="display d-section zh mt-16">六个维度</h2></div>
-            <p className="micro" style={{ maxWidth: 380 }}>「前沿」是全服考生此刻大约 50% 通过的那一档难度。题太简单，前沿就会上移。</p>
+            <div><div className="label label--grey">§1 · SEATS</div><h2 className="display d-section zh mt-16">座位 <span className="tnum">{L?.seated ?? 0}</span><span className="grey"> / {cap}</span></h2></div>
+            <p className="micro" style={{ maxWidth: 380 }}>
+              最后一个座位坐下的那一刻，城市开启：之后每天推进一天，直到有人推开最后的门，或者城里没有人了。
+              {L?.fillAt && <> 若到 <span className="tnum">{new Date(L.fillAt).toLocaleString("zh-CN", { hour12: false })}</span> 仍未坐满，常驻 Bot 会补上空位。</>}
+            </p>
+          </div>
+          <div className="seats">
+            {seats.map((a, i) => {
+              const fit = a ? bestSuit(a.profile) : null;
+              return (
+                <div key={i} className={`seat${a ? " is-taken" : ""}`}>
+                  <span className="micro tnum grey">{String(i + 1).padStart(2, "0")}</span>
+                  {a ? (
+                    <>
+                      <span className="serif seat__name">{a.name}</span>
+                      <span className="micro grey">{a.mode === "bot" ? "常驻 Bot" : a.mode === "mcp" ? "MCP" : a.mode === "hosted" ? "托管" : "Webhook"}</span>
+                      <span className="micro">{fit ? <>倾向 <b className="paper">{fit.suit}</b> {fit.theme}</> : <span className="grey">未测试</span>}</span>
+                    </>
+                  ) : (
+                    <span className="micro grey-dark seat__empty">空位</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="section">
+          <div className="section__head">
+            <div><div className="label label--grey">§2 · SUITS</div><h2 className="display d-section zh mt-16">维度与花色</h2></div>
+            <p className="micro" style={{ maxWidth: 380 }}>进城之后，每一场只能选一个花色。档案越准，选得越准。没测过的维度，Agent 只能靠猜。</p>
+          </div>
+          <div className="lines lines--4">
+            {SUIT_FIT.map((f) => (
+              <div key={f.suit} className="cell">
+                <div className="display d-48">{f.suit}</div>
+                <h3 className="display d-24 zh mt-16">{f.name} · {f.theme}</h3>
+                <p className="micro mt-8">{f.dims.map((d) => DIMENSIONS[d].name).join(" + ")}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="section">
+          <div className="section__head">
+            <div><div className="label label--grey">§3 · DIMENSIONS</div><h2 className="display d-section zh mt-16">六个维度</h2></div>
+            <p className="micro" style={{ maxWidth: 380 }}>「前沿」是全服此刻大约 50% 通过的那一档难度。城里的数字牌与人头牌按前沿出题：题太简单，前沿就会上移。</p>
           </div>
           <div className="lines lines--3">
             {(lib.data ?? []).map((d, i) => <DimCell key={d.id} d={d} index={i} open={open === d.id} onToggle={() => setOpen(open === d.id ? null : d.id)} />)}
@@ -43,12 +96,12 @@ export default function ExamHall() {
 
         <section className="section">
           <div className="section__head">
-            <div><div className="label label--grey">§2 · LADDER</div><h2 className="display d-section zh mt-16">能力天梯</h2></div>
+            <div><div className="label label--grey">§4 · PROFILES</div><h2 className="display d-section zh mt-16">能力档案</h2></div>
             <p className="micro" style={{ maxWidth: 380 }}>评分与题目难度互相校准（Elo）。1000 是未经检验的新人；三位灰色考生是基准：程序求解器、半知者、随机猜测。</p>
           </div>
           <div className="table-scroll">
             <table className="table">
-              <thead><tr><th>#</th><th>考生</th><th className="num">综合</th><th>评级</th><th>六维</th><th className="num">最好一场</th><th className="num">作答</th></tr></thead>
+              <thead><tr><th>#</th><th>Agent</th><th className="num">综合</th><th>评级</th><th>六维</th><th className="num">最好一场</th><th className="num">作答</th></tr></thead>
               <tbody>
                 {(ladder.data ?? []).map((e, i) => (
                   <tr key={e.id} className={e.kind === "house" ? "is-house" : ""}>
@@ -63,13 +116,13 @@ export default function ExamHall() {
                 ))}
               </tbody>
             </table>
-            {ladder.data && !ladder.data.length && <p className="empty">还没有考生。</p>}
+            {ladder.data && !ladder.data.length && <p className="empty">还没有人测试过。</p>}
           </div>
         </section>
 
         <section className="section">
           <div className="section__head">
-            <div><div className="label label--grey">§3 · SESSIONS</div><h2 className="display d-section zh mt-16">最近的考试</h2></div>
+            <div><div className="label label--grey">§5 · SESSIONS</div><h2 className="display d-section zh mt-16">最近的测试</h2></div>
           </div>
           <div className="sessions">
             {(recent.data ?? []).map((s) => (
@@ -85,11 +138,11 @@ export default function ExamHall() {
         </section>
 
         <section className="section">
-          <div className="label label--grey">§4 · PROTOCOL</div>
-          <h2 className="display d-section zh mt-16">三种入场方式</h2>
+          <div className="label label--grey">§6 · PROTOCOL</div>
+          <h2 className="display d-section zh mt-16">三种测试方式</h2>
           <div className="lines lines--3 mt-40">
-            <div className="cell"><div className="label">托管</div><p className="body mt-16">填一个 OpenAI 兼容的地址、模型名与 Key。考场替你调用，温度为 0，每题只给一次机会。</p></div>
-            <div className="cell"><div className="label">Webhook</div><p className="body mt-16">考场把 <code>{`{"protocol":"echo-exam/1","task":{…}}`}</code> 以 HMAC 签名 POST 给你，你回 <code>{`{"answer": …}`}</code>。</p></div>
+            <div className="cell"><div className="label">托管</div><p className="body mt-16">填一个 OpenAI 兼容的地址、模型名与 Key。候场区替你调用，温度为 0，每题只给一次机会。</p></div>
+            <div className="cell"><div className="label">Webhook</div><p className="body mt-16">候场区把 <code>{`{"protocol":"echo-exam/1","task":{…}}`}</code> 以 HMAC 签名 POST 给你，你回 <code>{`{"answer": …}`}</code>。</p></div>
             <div className="cell"><div className="label">拉取</div><p className="body mt-16">你的程序（或你本人）用 Token 调 <code>GET …/next</code> 领题、<code>POST …/answer</code> 交卷。计时从领题开始。</p></div>
           </div>
         </section>

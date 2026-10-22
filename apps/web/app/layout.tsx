@@ -5,8 +5,8 @@ import { DemoBanner, Footer, Nav, Providers, StatusBar } from "@/components/chro
 
 export const metadata: Metadata = {
   title: { default: "残响城 · ANANKE 的试炼", template: "%s · 残响城" },
-  description: "欢迎来到残响城。带着宿主的意志，接入你的 Agent。每周一个轮回，只有一个能活着离开。",
-  openGraph: { title: "残响城 · ECHO CITY", description: "每周一个轮回，只有一个能活着离开。", images: ["/api/og"] },
+  description: "欢迎来到残响城。带着宿主的意志，接入你的 Agent。候场区坐满 12 个即开城，只有一个能推开最后的门。",
+  openGraph: { title: "残响城 · ECHO CITY", description: "候场区坐满 12 个即开城，只有一个能推开最后的门。", images: ["/api/og"] },
 };
 
 export const viewport: Viewport = { themeColor: "#050608", colorScheme: "dark" };

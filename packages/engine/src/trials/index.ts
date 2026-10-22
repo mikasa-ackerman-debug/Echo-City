@@ -9,9 +9,10 @@ import { club8 } from "./club-8";
 import { spade5 } from "./spade-5";
 import { joker } from "./joker";
 import { BANK_TRIALS, club9, diamond10, diamond2, spade9 } from "./bank";
+import { DECK_TRIALS } from "./deck";
 
 export const TRIALS: Record<string, TrialDef> = Object.fromEntries(
-  [diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker, ...BANK_TRIALS].map((t) => [t.id, t]),
+  [diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker, ...BANK_TRIALS, ...DECK_TRIALS].map((t) => [t.id, t]),
 );
 
 /** Number cards that may be lit on weekday nights. */
@@ -45,6 +46,7 @@ export function rankWindow(night: number): [number, number] {
 }
 
 export { diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker, diamond2, spade9, club9, diamond10 };
+export * from "./deck";
 export { bankTrial, bankLevel, BANK_TRIALS, type BankCardSpec, type BankTrialDef } from "./bank";
 export { generatePuzzle, solvePuzzle } from "./diamond-3";
 export { scoreGuess } from "./diamond-6";

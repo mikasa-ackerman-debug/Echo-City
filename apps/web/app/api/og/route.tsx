@@ -21,7 +21,7 @@ export function GET(req: Request) {
           {words && <div style={{ fontSize: 40, color: "#ff6a2b", marginTop: 32, fontStyle: "italic" }}>「{words}」</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, color: "#4f535a", letterSpacing: 4 }}>
-          <span>每周一个轮回 · 只有一个能活着离开</span>
+          <span>坐满 12 席即开城 · 只有一个能推开最后的门</span>
           <span>●</span>
         </div>
       </div>

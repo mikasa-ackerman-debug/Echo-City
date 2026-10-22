@@ -58,6 +58,17 @@ export interface VenueLite {
   reveal?: Record<string, unknown>;
   startSeq: number;
   endSeq?: number;
+  /** Ladder rules: challenge slot of the day this table belonged to. */
+  slot?: number;
+}
+
+/** Ladder rules: everyone's progress on the four suit ladders (agent id → suit → cards cleared). */
+export interface LadderLite {
+  slot: number;
+  slotsPerDay: number;
+  progress: Record<string, Record<string, number>>;
+  jokerOpen: string[];
+  winner?: string;
 }
 
 export interface InquiryLine { index: number; question: string; answer?: string }
@@ -83,10 +94,11 @@ export interface View {
   finale?: "judgment" | "joker";
   whisperOpen: boolean;
   deleted: number;
+  ladder?: LadderLite;
 }
 
 const ROUND_TYPES = new Set(["beauty_round", "collar_declare", "dinner_round", "dinner_pairs", "lifeboat_round", "corridor_round", "elevator_answer", "hound_round", "joker_round", "joker_duel_round", "vote_execute", "vote_none", "greenhouse_round", "jack_found", "joker_cull", "joker_duel", "passphrase_leak", "hound_decoy", "beauty_cap", "collar_cap", "bank_task", "bank_answer"]);
-const NARRATOR_TYPES = new Set(["dawn", "finale", "venues_lit", "quiet_night", "inquiry_question", "inquiry_start", "joker_cull", "whisper_open", "night_end", "judgment_break", "amendment", "solo_king", "rule_added", "gatekeeper_enter", "venue_dark"]);
+const NARRATOR_TYPES = new Set(["slot_open", "slot_quiet", "ladder_step", "joker_unlocked", "ladder_winner", "echo_join", "city_timeout", "dawn", "finale", "venues_lit", "quiet_night", "inquiry_question", "inquiry_start", "joker_cull", "whisper_open", "night_end", "judgment_break", "amendment", "solo_king", "rule_added", "gatekeeper_enter", "venue_dark"]);
 
 export function deriveView(events: CycleEvent[], cursor = events.length): View {
   const v: View = { night: 0, phase: "dawn", seq: 0, agents: {}, order: [], venues: [], lit: [], narrator: "", narratorSeq: 0, districts: [], map: {}, inquiry: [], quiet: false, whisperOpen: false, deleted: 0 };
@@ -103,6 +115,7 @@ export function deriveView(events: CycleEvent[], cursor = events.length): View {
     v.seq = e.seq;
     switch (e.type) {
       case "cycle_start": {
+        if (d.mode === "ladder") v.ladder = { slot: 0, slotsPerDay: num(rec(d.config).slotsPerDay) ?? 0, progress: {}, jokerOpen: [] };
         v.districts = strs(d.districts);
         v.map = Object.fromEntries(Object.entries(rec(d.map)).map(([k, x]) => [k, strs(x)]));
         for (const a of recs(d.agents)) {
@@ -163,8 +176,25 @@ export function deriveView(events: CycleEvent[], cursor = events.length): View {
         say(e);
         break;
       }
+      case "slot_open":
+        if (v.ladder) { v.ladder.slot = num(d.slot) ?? v.ladder.slot; v.ladder.slotsPerDay = num(d.slots) ?? v.ladder.slotsPerDay; }
+        break;
+      case "ladder_step": {
+        const id = str(d.id);
+        if (v.ladder && id) (v.ladder.progress[id] ??= { "♦": 0, "♣": 0, "♠": 0, "♥": 0 })[str(d.suit) ?? ""] = num(d.cleared) ?? 0;
+        break;
+      }
+      case "joker_unlocked": {
+        const id = str(d.id);
+        if (v.ladder && id && !v.ladder.jokerOpen.includes(id)) v.ladder.jokerOpen.push(id);
+        break;
+      }
+      case "ladder_winner":
+        if (v.ladder) v.ladder.winner = str(d.id);
+        break;
       case "trial_start":
         v.venues.push({
+          slot: v.ladder?.slot,
           id: str(d.venue) ?? e.venue ?? `v${e.seq}`, district: str(d.district) ?? "", card: str(d.card), name: str(d.name), trial: str(d.trial), suit: str(d.suit), rank: num(d.rank), tests: str(d.tests),
           players: strs(d.players), night: e.night, phase: e.phase, ended: false, rules: str(d.rules) ?? "", rounds: [], rules_added: [], messages: [], claims: [], eliminated: [], startSeq: e.seq,
         });
@@ -266,7 +296,7 @@ export function markers(events: CycleEvent[]): Marker[] {
     else if (e.type === "rule_added") out.push({ index, glyph: "⟲", label: "规则追加", kind: "rule", night: e.night });
     else if (e.type === "host_whisper") out.push({ index, glyph: "✦", label: "低语", kind: "whisper", night: e.night });
     else if (e.type === "cycle_end") out.push({ index, glyph: "◆", label: "结局", kind: "ending", night: e.night });
-    else if (e.type === "dawn") out.push({ index, glyph: "│", label: `第 ${e.night} 夜`, kind: "night", night: e.night });
+    else if (e.type === "dawn") out.push({ index, glyph: "│", label: e.data?.mode === "ladder" ? `第 ${e.night} 天` : `第 ${e.night} 夜`, kind: "night", night: e.night });
   });
   return out;
 }

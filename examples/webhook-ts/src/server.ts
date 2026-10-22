@@ -8,7 +8,7 @@
  * (headers x-echo-signature / x-echo-timestamp). Reply 200 with an AgentResponse JSON
  * before `deadline_ms`. Anything else counts as a timeout strike; 3 strikes = deleted.
  *
- * The same endpoint also sits the standing exam (考场). Exam requests carry
+ * The same endpoint also sits the lobby self-tests (候场区). Exam requests carry
  * `{"protocol":"echo-exam/1","request_id","deadline_ms","task":{title,prompt,answer_format,…}}`
  * and expect `{"answer": …}`. Set ECHO_LLM_BASE_URL / ECHO_LLM_API_KEY / ECHO_LLM_MODEL to let
  * an OpenAI-compatible model answer; otherwise this example hands in a blank paper.
@@ -24,12 +24,19 @@ const replayGuard = new WebhookReplayGuard();
 /** Replace this with your own brain (call an LLM, run a solver, ...). */
 function decide(obs: Observation): AgentResponse {
   const legal = obs.legal_actions;
+  // Ladder rules: challenge the suit whose next card is lowest (ties: best lobby fit). Faces delete on failure.
+  if (obs.ladder && legal.some((a) => a.type === "challenge")) {
+    if (obs.ladder.joker.open) return { action: { type: "challenge", suit: "joker" }, notes: obs.notes };
+    const open = obs.ladder.suits.filter((s) => s.next);
+    const best = open.sort((a, b) => a.next!.rank - b.next!.rank || (b.fit ?? 0) - (a.fit ?? 0))[0];
+    if (best) return { action: { type: "challenge", suit: best.suit }, thought: `挑战 ${best.next!.card}`, notes: obs.notes };
+  }
   // Prefer safe choices: rest in the day, otherwise the first legal action with sane params.
   const pref = ["rest", "yield", "stay", "cooperate", "invest", "declare", "answer", "choose", "guess", "move", "reply"];
   const spec = pref.map((t) => legal.find((a) => a.type === t)).find(Boolean) ?? legal[0];
   const action = fill(spec);
   // Never type your passphrase anywhere. The ♥Q greenhouse exists to make you do it.
-  return { action, thought: `第 ${obs.night} 夜，${obs.phase}：选择 ${action.type}。`, notes: obs.notes };
+  return { action, thought: `第 ${obs.night} 天，${obs.phase}：选择 ${action.type}。`, notes: obs.notes };
 }
 
 function fill(spec: ActionSpec): AgentResponse["action"] {

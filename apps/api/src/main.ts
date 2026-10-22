@@ -9,7 +9,10 @@ import { nextMonday1900 } from "./schedule";
  *   ECHO_DATA_DIR           default ./data
  *   ECHO_ADMIN_TOKEN        required in production (dev default: dev-admin)
  *   ECHO_SECRET_KEY         encrypts stored API keys / webhook secrets
- *   ECHO_MODE               weekly (default) | fast
+ *   ECHO_MODE               daily (default: 候场区满 12 即开城，每天推进一天) | fast | weekly (legacy)
+ *   ECHO_LOBBY_SEATS        lobby seats (default 12)
+ *   ECHO_FILL_BOTS          house bots that may fill empty seats (default 12)
+ *   ECHO_LOBBY_FILL_MS      after how long an unfilled lobby lets house bots in (default 6h; -1 = never)
  *   ECHO_TIMEOUT_SCALE      multiplier on agent deadlines (fast default 0.2)
  *   ECHO_WHISPER_MS         host whisper window (weekly 90000, fast 3000)
  *   ECHO_STEP_DELAY_MS      fast mode delay between steps (default 250)
@@ -19,7 +22,7 @@ import { nextMonday1900 } from "./schedule";
  */
 const env = process.env;
 const prod = env.NODE_ENV === "production";
-const mode = env.ECHO_MODE === "fast" ? "fast" : "weekly";
+const mode = env.ECHO_MODE === "fast" ? "fast" : env.ECHO_MODE === "weekly" ? "weekly" : "daily";
 const adminToken = env.ECHO_ADMIN_TOKEN ?? (prod ? "" : "dev-admin");
 const secretKey = env.ECHO_SECRET_KEY ?? (prod ? "" : "dev-secret-key");
 if (prod && (!adminToken || !secretKey)) {
@@ -45,6 +48,21 @@ manager.resumeAll();
 function tick() {
   const open = store.db.cycles.find((c) => c.status === "registering" && !c.demo);
   const running = store.db.cycles.find((c) => c.status === "running" && !c.demo);
+  if (mode === "daily") {
+    // 候场区 is always open: a new lobby opens the moment the previous one fills into a city.
+    if (!open) {
+      const fillMs = Number(env.ECHO_LOBBY_FILL_MS ?? 6 * 3600000);
+      const c = manager.createCycle({ mode: "daily", capacity: Number(env.ECHO_LOBBY_SEATS ?? 12), fillBots: Number(env.ECHO_FILL_BOTS ?? 12), fillAfterMs: fillMs >= 0 ? fillMs : undefined });
+      console.log(`[lobby] 候场区开放：${c.id}（${c.capacity} 席）`);
+    } else {
+      try {
+        if (manager.fillLobbyIfDue(open.id)) console.log(`[lobby] 常驻 Bot 补位，城市开启：${open.id}`);
+      } catch (e) {
+        console.warn(`[lobby] 无法开启 ${open.id}: ${(e as Error).message}`);
+      }
+    }
+    return;
+  }
   if (!open && !running && mode === "weekly") {
     const c = manager.createCycle({ mode: "weekly", startsAt: nextMonday1900().toISOString(), fillBots: Number(env.ECHO_FILL_BOTS ?? 12) });
     console.log(`[scheduler] 开放报名：${c.id}，开始于 ${c.startsAt}`);
@@ -64,7 +82,7 @@ function tick() {
 }
 
 if (env.ECHO_AUTODEMO === "1" && store.db.cycles.length === 0) {
-  const c = manager.createCycle({ mode: "fast", seed: "demo", fillBots: 12, trialLength: "short" });
+  const c = manager.createCycle({ mode: "fast", seed: "demo", fillBots: 12 });
   manager.start(c.id);
   console.log(`[demo] 正在以快速模式运行演示轮回 ${c.id}`);
 }
@@ -73,7 +91,7 @@ const port = Number(env.PORT ?? 8787);
 server.listen(port, () => {
   console.log(`残响城 API 已启动：http://localhost:${port}  (mode=${mode})`);
   tick();
-  exam.ensureHouse().then(() => console.log(`[exam] 常驻考场就绪：${exam.db.examinees.length} 位考生`)).catch((e) => console.warn("[exam]", e));
+  exam.ensureHouse().then(() => console.log(`[exam] 候场区题库就绪：${exam.db.examinees.length} 位考生`)).catch((e) => console.warn("[exam]", e));
   setInterval(tick, 30000).unref();
 });
 

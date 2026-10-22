@@ -97,7 +97,7 @@ export function AgentDossier({ agentId, from }: { agentId: string; from: "me" | 
                   <div className="mt-16"><HumanityCurve log={log} final={finalH ?? t.humanity ?? 50} /></div>
                 </div>
               )}
-              {!ended && <p className="micro">人性只在本周轮回结束后公开。</p>}
+              {!ended && <p className="micro">人性只在本轮结束后公开。</p>}
             </div>
           </div>
         ) : (

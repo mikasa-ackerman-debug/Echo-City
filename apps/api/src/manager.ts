@@ -1,5 +1,5 @@
 import { LIMITS, sanitizeText, textLength, type HostProfile, type LineageEntry } from "@echo/protocol";
-import { LlmAgent, McpDriver, PERSONAS, RuleBot, STRATEGY_TEMPLATES, WebhookAgent, validateNetworkUrl, type AgentDriver, type Persona } from "@echo/agents";
+import { LlmAgent, McpDriver, PERSONAS, RuleBot, personaProfile, STRATEGY_TEMPLATES, WebhookAgent, validateNetworkUrl, type AgentDriver, type Persona } from "@echo/agents";
 import { DEFAULT_CONFIG, createCycle as createEngineCycle, diagnose, summarize, validateWhisper, type CycleEvent, type CycleState, type RosterEntry, type TimeoutClass } from "@echo/engine";
 import { BOT_NAMES, SAMPLE_HOSTS, buildReplay, continueCycle, type RunHooks } from "@echo/runner";
 import { Sealer, newId, newToken } from "./crypto";
@@ -38,7 +38,14 @@ export interface TaskBankLink {
   frontier(): Record<string, number>;
   /** Answers given on bank-backed cards during a cycle. */
   record(answers: Array<{ agentId: string; family: string; level: number; score: number }>): void;
+  /** Lobby ability profile measured in the 候场区 (rating per dimension), if the agent tested itself. */
+  profile?(agentId: string, lineageId?: string): Record<string, number> | undefined;
 }
+
+/** Seats in the lobby: the city opens as soon as this many agents are registered. */
+export const LOBBY_SEATS = 12;
+/** Challenge slots per city day in daily mode. */
+export const DAILY_SLOTS = 6;
 
 /**
  * MCP agent 的实际超时预算（FR-5 / R1）：Agent CLI 单次决策 10–60s+，引擎默认 deadline 对其不可行。
@@ -105,9 +112,9 @@ export class CycleManager {
 
   /* ---------------- cycles ---------------- */
 
-  createCycle(input: { seed?: string; mode?: "weekly" | "fast"; startsAt?: string; fillBots?: number; trialLength?: "standard" | "short" } = {}): CycleRec {
-    const mode = input.mode ?? "weekly";
-    if (!["weekly", "fast"].includes(mode) || (input.trialLength && !["standard", "short"].includes(input.trialLength))) throw new ApiError(400, "Invalid cycle configuration");
+  createCycle(input: { seed?: string; mode?: "weekly" | "fast" | "daily"; startsAt?: string; fillBots?: number; trialLength?: "standard" | "short"; capacity?: number; fillAfterMs?: number } = {}): CycleRec {
+    const mode = input.mode ?? "daily";
+    if (!["weekly", "fast", "daily"].includes(mode) || (input.trialLength && !["standard", "short"].includes(input.trialLength))) throw new ApiError(400, "Invalid cycle configuration");
     const seed = newToken(); // private, server-generated entropy; never derived from caller input
     const startsAt = input.startsAt ? new Date(input.startsAt) : mode === "weekly" ? nextMonday1900(this.now()) : this.now();
     if (Number.isNaN(startsAt.getTime())) throw new ApiError(400, "startsAt 无效");
@@ -125,22 +132,74 @@ export class CycleManager {
       fillBots: Math.max(0, Math.min(96, Number.isFinite(input.fillBots) ? Math.floor(input.fillBots!) : 0)),
       trialLength: input.trialLength ?? (mode === "fast" ? "short" : "standard"),
       agentIds: [],
+      rules: mode === "weekly" ? "weekly" : "ladder",
+      ...(mode === "daily"
+        ? {
+            capacity: Math.max(2, Math.min(96, Number.isFinite(input.capacity) ? Math.floor(input.capacity!) : LOBBY_SEATS)),
+            fillAt: input.fillAfterMs !== undefined && Number.isFinite(input.fillAfterMs) && input.fillAfterMs >= 0 ? new Date(this.now().getTime() + input.fillAfterMs).toISOString() : undefined,
+          }
+        : {}),
     };
     this.store.db.cycles.push(rec);
     this.store.save();
     return rec;
   }
 
+  /** Lobby state for the 候场区 page. */
+  lobby(cycleId?: string) {
+    const c = cycleId ? this.store.cycle(cycleId) : [...this.store.db.cycles].reverse().find((x) => x.status === "registering" && !x.demo && x.mode === "daily");
+    if (!c) return null;
+    const seated = this.store.db.agents.filter((a) => a.cycleId === c.id);
+    return {
+      id: c.id,
+      status: c.status,
+      capacity: c.capacity ?? LOBBY_SEATS,
+      seated: seated.length,
+      fillAt: c.fillAt ?? null,
+      agents: seated.map((a) => ({ id: a.id, name: a.name, mode: a.mode, kind: a.mode === "bot" ? `bot:${a.bot?.persona}` : a.mode, profile: this.profileOf(a) ?? null, createdAt: a.createdAt })),
+    };
+  }
+
+  /** Ability profile for an agent: lobby self-tests for players, the persona's skill for house bots. */
+  private profileOf(a: AgentRec): Record<string, number> | undefined {
+    if (a.mode === "bot") {
+      const p = a.bot?.persona && Object.hasOwn(PERSONAS, a.bot.persona) ? (a.bot.persona as Persona) : "guardian";
+      return personaProfile(p);
+    }
+    return this.opts.bank?.profile?.(a.id, a.lineageId);
+  }
+
+  /** Daily lobby: open the city when every seat is taken. */
+  private maybeOpenCity(c: CycleRec) {
+    if (c.mode !== "daily" || c.status !== "registering") return;
+    const n = this.store.db.agents.filter((a) => a.cycleId === c.id).length;
+    if (n >= (c.capacity ?? LOBBY_SEATS)) {
+      c.startsAt = this.now().toISOString();
+      this.start(c.id);
+    }
+  }
+
+  /** Scheduler hook: let house bots take empty lobby seats once `fillAt` has passed. */
+  fillLobbyIfDue(cycleId: string): boolean {
+    const c = this.store.cycle(cycleId);
+    if (!c || c.mode !== "daily" || c.status !== "registering" || !c.fillAt) return false;
+    if (this.now().getTime() < new Date(c.fillAt).getTime()) return false;
+    c.fillBots = Math.max(c.fillBots, c.capacity ?? LOBBY_SEATS);
+    c.startsAt = this.now().toISOString();
+    this.start(c.id);
+    return true;
+  }
+
   /* ---------------- admin demo (backdoor) ---------------- */
 
   /** A private, compressed replay of a full week: Monday 19:00 → Sunday joker, mock bots fill the roster. */
   createDemoCycle(input: { speed?: number; fillBots?: number } = {}): CycleRec {
-    const speed = Math.max(60, Math.min(20000, Number.isFinite(input.speed) ? Math.floor(input.speed!) : 1440));
+    const speed = Math.max(60, Math.min(1000000, Number.isFinite(input.speed) ? Math.floor(input.speed!) : 1440));
     const fill = Math.max(2, Math.min(96, Number.isFinite(input.fillBots) ? Math.floor(input.fillBots!) : 12));
     let id = `demo-${newToken().slice(0, 8)}`;
     while (this.store.cycle(id)) id = `demo-${newToken().slice(0, 8)}`;
     const rec: CycleRec = {
-      id, seed: newToken(), status: "registering", mode: "weekly",
+      id, seed: newToken(), status: "registering", mode: "daily", rules: "ladder",
       startsAt: this.now().toISOString(), createdAt: this.now().toISOString(),
       fillBots: fill, trialLength: "standard", agentIds: [], demo: true, demoSpeed: speed,
     };
@@ -178,7 +237,14 @@ export class CycleManager {
     const roster = entries.map((a) => this.rosterEntry(a));
     for (const entry of roster) this.store.agent(entry.id)!.generation = entry.lineage?.generation ?? 1;
     const drivers = Object.fromEntries(entries.map((a) => [a.id, this.driver(a)]));
-    const config = { trialLength: c.trialLength, maxReturned: DEFAULT_CONFIG.maxReturned, bankFrontier: this.opts.bank?.frontier() };
+    const ladder = (c.rules ?? (c.mode === "weekly" ? "weekly" : "ladder")) === "ladder";
+    const config = {
+      trialLength: c.trialLength,
+      maxReturned: DEFAULT_CONFIG.maxReturned,
+      bankFrontier: this.opts.bank?.frontier(),
+      ...(ladder ? { mode: "ladder" as const, slotsPerDay: c.mode === "daily" ? DAILY_SLOTS : DEFAULT_CONFIG.slotsPerDay } : {}),
+    };
+    if (ladder) for (const r of roster) r.profile = this.profileOf(this.store.agent(r.id)!);
     const state = createEngineCycle({ id: c.id, seed: c.seed, roster, config });
     this.store.checkpoint(state, []);
     for (const a of entries) a.status = "alive";
@@ -260,6 +326,7 @@ export class CycleManager {
 
   private hooks(c: CycleRec, signal: AbortSignal): RunHooks {
     const weekly = c.mode === "weekly";
+    const daily = c.mode === "daily";
     const startsAt = new Date(c.startsAt);
     // Demo cycles replay the weekly clock compressed: virtual time t maps to startsAt + (t - startsAt) / speed.
     const speed = c.demo ? Math.max(1, c.demoSpeed ?? 1440) : 1;
@@ -279,6 +346,18 @@ export class CycleManager {
       onState: (state) => this.store.checkpoint(state, []),
       whispers: (state, agents) => this.openWhisperWindow(c, state, agents, signal),
       pace: async (state, moment) => {
+        if (daily) {
+          // One city day per real day from the moment the lobby filled; the slots are spread over the day.
+          const DAY = 24 * 3600000;
+          const wait = (t: number) => sleep(real(new Date(t)).getTime() - this.now().getTime(), signal);
+          const dawn = (night: number) => startsAt.getTime() + (night - 1) * DAY;
+          if (moment === "before_input" && state.waiting.kind === "agents" && state.waiting.requests[0]?.context === "day") {
+            const slots = state.config.slotsPerDay || 1;
+            return wait(dawn(state.night) + ((state.dayRound - 1) * DAY) / (slots + 1));
+          }
+          if (moment === "before_advance" && state.waiting.kind === "host") return wait(dawn(state.night + 1));
+          return;
+        }
         if (!weekly) {
           if (moment === "before_advance") await sleep(this.opts.fastStepDelayMs, signal);
           return;
@@ -367,7 +446,8 @@ export class CycleManager {
     }
     const inCycle = this.store.db.agents.filter((a) => a.cycleId === c.id);
     // R1：MCP Agent 决策慢（10–60s+），只能参加按真实时间推进的 weekly 轮回。
-    if (input.mode === "mcp" && c.mode !== "weekly") throw new ApiError(409, "快速模式仅限演示 Bot：MCP Agent 只能报名 weekly 轮回");
+    if (input.mode === "mcp" && c.mode === "fast") throw new ApiError(409, "快速模式仅限演示 Bot：MCP Agent 只能报名候场区（daily）或 weekly 轮回");
+    if (c.mode === "daily" && inCycle.length >= (c.capacity ?? LOBBY_SEATS)) throw new ApiError(409, "候场区已满，城市正在开启");
     if (inCycle.some((a) => a.ownerId === user.id)) throw new ApiError(409, "每个账号每周只能报名一个 Agent");
     if (inCycle.length >= 96) throw new ApiError(409, "轮回最多 96 个 Agent");
     if (typeof input.name !== "string" || /[\[\]<>:\r\n]/.test(input.name) || /(?:ANANKE|system)/i.test(input.name.trim())) throw new ApiError(400, "保留或无效的名字");
@@ -426,6 +506,8 @@ export class CycleManager {
     if (!lin) rec.lineageId = this.createLineage(user, newHost!).id;
     this.store.db.agents.push(rec);
     this.store.flush();
+    // 候场区：the last free seat opens the city.
+    try { this.maybeOpenCity(c); } catch (err) { console.warn(`[lobby ${c.id}] 无法开启城市：${(err as Error).message}`); }
     return { agent: rec, webhookSecret };
   }
 
@@ -450,7 +532,7 @@ export class CycleManager {
     const { advance, buildObservation, createCycle } = await import("@echo/engine");
     const { normalizeResponse } = await import("@echo/protocol");
     const roster = [this.rosterEntry(a), { id: "probe", name: a.name === "Probe" ? "Probe-2" : "Probe", host: SAMPLE_HOSTS[0] }];
-    const st = advance(createCycle({ id: "test", seed: "probe", roster })).state;
+    const st = advance(createCycle({ id: "test", seed: "probe", roster, config: { mode: "ladder" } })).state;
     const obs = buildObservation(st, a.id);
     const t0 = Date.now();
     const ctrl = new AbortController();
@@ -593,6 +675,18 @@ export class CycleManager {
       total: s.order.length,
       venues: s.venues.map((v) => ({ district: v.district, status: v.status, registered: v.registered.length, capacity: v.capacity, card: v.status === "done" || v.status === "dark" ? v.card : undefined })),
       trials: s.trials.map((t) => ({ venue: t.venueId, card: t.card, players: t.players.length, done: t.done })),
+      ...(s.config.mode === "ladder"
+        ? {
+            rules: "ladder" as const,
+            slot: s.dayRound,
+            slotsPerDay: s.config.slotsPerDay,
+            board: s.order.map((id) => {
+              const a = s.agents[id];
+              const l = a.ladder ?? {};
+              return { name: a.name, status: a.status, ladder: { "♦": l["♦"] ?? 0, "♣": l["♣"] ?? 0, "♠": l["♠"] ?? 0, "♥": l["♥"] ?? 0 }, total: Object.values(l).reduce((x, y) => x + y, 0) };
+            }),
+          }
+        : {}),
     };
   }
 

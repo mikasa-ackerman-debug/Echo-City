@@ -63,6 +63,10 @@ export function adjustHumanity(k: K, ch: HumanityChange) {
 export function deleteAgent(k: K, id: string, reason: DeleteReason, card?: string) {
   const a = k.s.agents[id];
   if (!a || a.status !== "alive") return;
+  if (a.echo) {
+    a.status = "archived";
+    return;
+  }
   a.status = "deleted";
   if (k.s.winner === id) k.s.winner = undefined;
   k.s.deathCounter++;

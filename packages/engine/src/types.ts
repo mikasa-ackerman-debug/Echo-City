@@ -46,6 +46,16 @@ export interface CycleConfig {
   bankFrontier?: Record<string, number>;
   /** Scale factor for trial lengths (1 = design defaults). Lower for fast sims. */
   trialLength: "short" | "standard";
+  /**
+   * "ladder" (current rules): four suit ladders 2→K plus the Joker, several challenge slots per day,
+   * the cycle ends when one agent passes the Joker or nobody is left.
+   * "weekly" (legacy): the original Monday–Sunday city with venues, pacts and a finale weekend.
+   */
+  mode?: "weekly" | "ladder";
+  /** Ladder: challenge slots per day. */
+  slotsPerDay: number;
+  /** Ladder: safety cap on the number of days. */
+  maxDays: number;
 }
 
 export const DEFAULT_CONFIG: CycleConfig = {
@@ -65,6 +75,8 @@ export const DEFAULT_CONFIG: CycleConfig = {
   amendment: null,
   facePool: { J: ["heart-J"], Q: ["heart-Q"], K: ["diamond-K"] },
   trialLength: "standard",
+  slotsPerDay: 8,
+  maxDays: 40,
 };
 
 /* ------------------------------------------------------------------ */
@@ -83,6 +95,8 @@ export interface RosterEntry {
   /** Free-form tag shown in UI (e.g. "hosted:gpt-4o", "webhook", "bot:viper"). */
   kind?: string;
   owner?: string;
+  /** Lobby ability profile: rating per task-bank dimension (exam scale, 1000 = untrained baseline). */
+  profile?: Partial<Record<string, number>>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -183,6 +197,14 @@ export interface AgentState {
   returned: boolean;
   yielded: boolean;
   answers: string[];
+  /** Ladder: cards cleared per suit (0..12). */
+  ladder?: Record<string, number>;
+  /** Ladder: failed attempts per trial id. */
+  ladderFails?: Record<string, number>;
+  /** Ladder: lobby ability profile. */
+  profile?: Partial<Record<string, number>>;
+  /** ANANKE's filler NPC ("残响") that only exists to make up a table's minimum. Never a contestant. */
+  echo?: boolean;
   stats: { trials: number; passed: number; bySuit: Record<string, { played: number; passed: number }>; lies: number; truths: number; leaks: number; pactsKept: number; pactsBroken: number };
 }
 
@@ -380,6 +402,10 @@ export interface CycleState {
   stage: Stage;
   /** Shared ring of fragments brought out by this cycle's winner (0, 0.5 or 1). */
   fragmentsOut?: number;
+  /** Ladder: what each agent chose for the current slot (agent id -> trial id). */
+  ladderChoices?: Record<string, string>;
+  /** Ladder: echo NPCs created so far. */
+  echoCounter?: number;
 }
 
 export type Stage = "begin" | "dawn" | "day" | "trial_start" | "trial" | "settle" | "whisper" | "inquiry" | "ending" | "ended";

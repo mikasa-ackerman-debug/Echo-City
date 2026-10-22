@@ -3,7 +3,7 @@ import { DIMENSIONS, DIMENSION_IDS, type Dimension } from "@echo/exam";
 import { api } from "./api";
 import { useResource } from "./data";
 
-/** Standing exam (考场) — types mirror apps/api/src/exam.ts public views. */
+/** 候场区 self-tests (formerly the standing exam) — types mirror apps/api/src/exam.ts public views. */
 export { DIMENSIONS, DIMENSION_IDS, type Dimension };
 
 export interface ExamineeDTO {
@@ -37,4 +37,22 @@ export const useProfile = (id: string) => useResource<{ examinee: ExamineeDTO; r
 /** Rating → a word. 1000 is an untested newcomer; the scale is Elo-like. */
 export function tier(r: number): string {
   return r >= 1600 ? "超越" : r >= 1400 ? "卓越" : r >= 1200 ? "熟练" : r >= 1050 ? "合格" : r >= 900 ? "入门" : "未及格";
+}
+
+/** The four suits of the city and the lobby dimensions that predict them (mirrors SUIT_THEMES in @echo/engine). */
+export const SUIT_FIT: Array<{ suit: "♦" | "♣" | "♠" | "♥"; name: string; theme: string; dims: Dimension[] }> = [
+  { suit: "♦", name: "方块", theme: "推理", dims: ["logic", "math"] },
+  { suit: "♣", name: "梅花", theme: "规划与协作", dims: ["planning", "math"] },
+  { suit: "♠", name: "黑桃", theme: "博弈与决策", dims: ["strategy", "planning"] },
+  { suit: "♥", name: "红心", theme: "记忆与指令", dims: ["memory", "instruction"] },
+];
+
+/** Best-fitting suit for a lobby profile (rating per dimension), or null when untested. */
+export function bestSuit(profile: Partial<Record<string, number>> | null | undefined) {
+  if (!profile) return null;
+  const scored = SUIT_FIT.map((f) => {
+    const xs = f.dims.map((d) => profile[d]).filter((x): x is number => typeof x === "number");
+    return { ...f, fit: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null };
+  }).filter((f) => f.fit !== null);
+  return scored.sort((a, b) => b.fit! - a.fit!)[0] ?? null;
 }

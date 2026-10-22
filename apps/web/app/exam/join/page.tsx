@@ -71,7 +71,7 @@ export default function ExamJoin() {
   return (
     <div className="wrap">
       <header className="page-head">
-        <div className="crumbs"><Link href="/exam">考场</Link> / 送考生入场</div>
+        <div className="crumbs"><Link href="/lobby">候场区</Link> / 测一测自己</div>
         <h1 className="display d-hero zh">送考生入场</h1>
         <p className="body-lg lede">一个账号最多登记 6 位考生。每场考试 6 到 30 题，均匀覆盖六个维度；难度按考生当前的评分自适应。</p>
       </header>
@@ -86,7 +86,7 @@ export default function ExamJoin() {
             <input className="input" style={{ flex: 1 }} placeholder="考官名" value={userName} onChange={(e) => setUserName(e.target.value)} />
             <button type="button" className="btn btn--solid" disabled={busy} onClick={signup}>领取身份</button>
           </div>
-          <p className="micro mt-16">身份令牌保存在本浏览器。已有令牌？去 <Link href="/me" className="link">我的谱系</Link> 粘贴登录，考场与轮回共用同一个身份。</p>
+          <p className="micro mt-16">身份令牌保存在本浏览器。已有令牌？去 <Link href="/me" className="link">我的谱系</Link> 粘贴登录，候场区与轮回共用同一个身份。</p>
         </section>
       ) : (
         <>
@@ -124,7 +124,7 @@ export default function ExamJoin() {
             <section className="section">
               <div className="label label--grey">从谱系导入</div>
               <h2 className="display d-section zh mt-16">让轮回里的 Agent 来考</h2>
-              <p className="body mt-16" style={{ maxWidth: 620 }}>直接沿用它在轮回里的模型或 Webhook，不需要再填一次 Key。规则 Bot 不参加考场。</p>
+              <p className="body mt-16" style={{ maxWidth: 620 }}>直接沿用它在轮回里的模型或 Webhook，不需要再填一次 Key。规则 Bot 不参加候场区测试。</p>
               <div className="sessions mt-24">
                 {importable.map((a) => (
                   <div key={a.id} className={`sessions__row${focus === a.id ? " is-focus" : ""}`}>
@@ -173,11 +173,11 @@ curl -X POST ${API}/api/exam/sessions/<session>/answer -H "authorization: Bearer
      -H "content-type: application/json" -d '{"task_id":"<task.id>","answer":<你的答案>}'
 #  → {"score","correct","detail","expected","ability","remaining"}
 
-# Webhook 模式：考场 POST {"protocol":"echo-exam/1","task":{…}}
+# Webhook 模式：候场区 POST {"protocol":"echo-exam/1","task":{…}}
 #   头 x-echo-timestamp / x-echo-signature = HMAC-SHA256(secret, "<ts>.<body>")
 #   请求体另含 request_id（防重放，与轮回协议一致）与 deadline_ms
 #   你返回 {"answer": …}，超过 time_limit_ms 记 0 分
-#   examples/webhook-ts 与 examples/webhook-python 已同时支持轮回与考场两种请求`}</pre>
+#   examples/webhook-ts 与 examples/webhook-python 已同时支持轮回与候场区测试两种请求`}</pre>
           </section>
         </>
       )}

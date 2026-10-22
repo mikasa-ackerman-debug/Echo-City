@@ -3,6 +3,7 @@ import { DISTRICT_FLAVOR } from "./city";
 import { alive } from "./kernel";
 import { WEEKDAYS } from "./narrator";
 import { getTrial } from "./trials";
+import { isLadder, ladderView } from "./ladder";
 import type { CycleState } from "./types";
 
 /** Build the observation for an agent with a pending request. Pure. */
@@ -17,7 +18,7 @@ export function buildObservation(s: CycleState, agentId: string, deadlineMs = 0)
     request_id: req.requestId,
     phase: s.phase,
     night: s.night,
-    weekday: WEEKDAYS[s.night] ?? "",
+    weekday: isLadder(s) ? `第 ${s.night} 天` : WEEKDAYS[s.night] ?? "",
     deadline_ms: deadlineMs || s.config.timeoutsMs[req.timeout],
     alive_count: alive(s).length,
     self: {
@@ -48,7 +49,9 @@ export function buildObservation(s: CycleState, agentId: string, deadlineMs = 0)
   if (a.whisper) obs.host_whisper = a.whisper;
   if (req.question) obs.question = req.question;
 
-  if (req.context === "day") {
+  if (req.context === "day" && isLadder(s)) {
+    obs.ladder = ladderView(s, agentId);
+  } else if (req.context === "day") {
     const here = alive(s).filter((id) => id !== a.id && s.agents[id].location === a.location);
     const known = (district: string): Suit | undefined => {
       const own = [...a.scouted].reverse().find((x) => x.night === s.night && x.district === district);

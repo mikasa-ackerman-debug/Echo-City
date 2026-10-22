@@ -1,6 +1,6 @@
 import type { HostProfile } from "@echo/protocol";
 import type { RosterEntry } from "@echo/engine";
-import { PERSONAS, RuleBot, type Persona } from "@echo/agents";
+import { PERSONAS, RuleBot, personaProfile, type Persona } from "@echo/agents";
 
 /** Sample hosts used for bots and demos. */
 export const SAMPLE_HOSTS: HostProfile[] = [
@@ -27,7 +27,7 @@ export function botRoster(count: number, personas?: Persona[]): { roster: Roster
   for (let i = 0; i < count; i++) {
     const persona = personas?.[i % personas.length] ?? all[i % all.length];
     const id = `ag-${String(i + 1).padStart(3, "0")}`;
-    roster.push({ id, name: BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.length ? `-${Math.floor(i / BOT_NAMES.length) + 1}` : ""), host: SAMPLE_HOSTS[i % SAMPLE_HOSTS.length], kind: `bot:${persona}` });
+    roster.push({ id, name: BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.length ? `-${Math.floor(i / BOT_NAMES.length) + 1}` : ""), host: SAMPLE_HOSTS[i % SAMPLE_HOSTS.length], kind: `bot:${persona}`, profile: personaProfile(persona) });
     drivers[id] = new RuleBot(persona);
   }
   return { roster, drivers };
