@@ -6,6 +6,7 @@ import { ExamService } from "./exam";
 import { TrialService } from "./trials";
 import { RoomService } from "./rooms";
 import { listPersonaSummaries } from "./personas";
+import { callLLM } from "./llm";
 import { sanitizeText } from "@echo/protocol";
 
 export interface AppOptions extends Partial<Omit<ManagerOptions, "sealer">> {
@@ -178,6 +179,16 @@ export function createApp(opts: AppOptions) {
   }, "user");
   route("DELETE", "/api/agents/:id", ({ params, user }) => (manager.withdraw(user!, params.id), { ok: true }), "user");
   route("POST", "/api/agents/:id/test", ({ params, user }) => manager.testAgent(user!, params.id), "user");
+  route("POST", "/api/llm/test", async ({ body }) => {
+    const { baseUrl, model, apiKey } = body ?? {};
+    if (!baseUrl || !model || !apiKey) throw new ApiError(400, "缺少 baseUrl / model / apiKey");
+    try {
+      const response = await callLLM({ baseUrl: String(baseUrl), model: String(model), apiKey: String(apiKey) }, [{ role: "user", content: "ping" }], { maxTokens: 16, timeoutMs: 30000 });
+      return { ok: true, response };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "连接失败" };
+    }
+  });
 
   /* ---------------- agent config (LLM persona) ---------------- */
   route("PUT", "/api/agents/:id/config", ({ params, body, user }) => {
@@ -202,7 +213,7 @@ export function createApp(opts: AppOptions) {
   /* ---------------- master switch (start a round) ---------------- */
   route("POST", "/api/round/start", ({ user }) => {
     const agents = store.db.agents.filter((a) => a.ownerId === user!.id && a.status !== "deleted");
-    if (!agents.length) throw new ApiError(400, "没有可用的智能体，请先在「我的谱系」中创建");
+    if (agents.length < 2) throw new ApiError(400, `至少需要 2 个智能体才能开启轮回，当前只有 ${agents.length} 个。请先在「我的谱系」中创建更多智能体。`);
     const round = rooms.currentRound();
     if (round.status === "joker") throw new ApiError(409, "当前轮回的 Joker 已开启");
     return { roundId: round.id, agents: agents.length, message: `轮次 ${round.id} 已就绪，${agents.length} 个智能体待命` };

@@ -39,8 +39,9 @@ export async function callLLM(
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
-    const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = json.choices?.[0]?.message?.content ?? "";
+    const json = await res.json() as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
+    const msg = json.choices?.[0]?.message;
+    const content = msg?.content || msg?.reasoning_content || "";
     return content.trim();
   } finally {
     clearTimeout(timer);

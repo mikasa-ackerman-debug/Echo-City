@@ -329,14 +329,22 @@ export class CycleManager {
   }
 
   register(user: UserRec, input: RegisterInput): { agent: AgentRec; webhookSecret?: string } {
-    const c = input.cycleId ? this.store.cycle(input.cycleId) : [...this.store.db.cycles].reverse().find((x) => x.status === "registering" && !x.demo);
-    if (!c) throw new ApiError(404, "当前没有开放报名的轮回");
-    if (c.status !== "registering") throw new ApiError(409, "该轮回已停止报名");
+    // 智能体配置与轮回开启解耦：创建智能体不需要开放报名的轮回
+    let c = input.cycleId ? this.store.cycle(input.cycleId) : [...this.store.db.cycles].reverse().find((x) => x.status !== "ended" && x.status !== "aborted" && !x.demo);
+    if (!c) {
+      // 自动创建新轮回
+      const newCycle = { id: newId("cy"), seed: newToken(), status: "registering" as const, mode: "weekly" as const, startsAt: this.now().toISOString(), createdAt: this.now().toISOString() };
+      this.store.db.cycles.push(newCycle as any);
+      this.store.save();
+      c = newCycle as any;
+    }
+    const cycle = c!;
+    if (cycle.status === "ended" || cycle.status === "aborted") throw new ApiError(409, "该轮回已结束，请开启新轮回");
     if (user.bannedCycle) {
       const banned = this.store.cycle(user.bannedCycle);
-      if (!banned || new Date(c.startsAt).getTime() <= new Date(banned.startsAt).getTime()) throw new ApiError(403, "该账号本周被禁止报名");
+      if (!banned || new Date(cycle.startsAt).getTime() <= new Date(banned.startsAt).getTime()) throw new ApiError(403, "该账号本周被禁止报名");
     }
-    const inCycle = this.store.db.agents.filter((a) => a.cycleId === c.id);
+    const inCycle = this.store.db.agents.filter((a) => a.cycleId === cycle.id);
     if (inCycle.some((a) => a.ownerId === user.id)) throw new ApiError(409, "每个账号每周只能报名一个 Agent");
     if (inCycle.length >= 96) throw new ApiError(409, "轮回最多 96 个 Agent");
     if (typeof input.name !== "string" || /[\[\]<>:\r\n]/.test(input.name) || /(?:ANANKE|system)/i.test(input.name.trim())) throw new ApiError(400, "保留或无效的名字");
@@ -348,8 +356,8 @@ export class CycleManager {
     if (input.lineageId && (!lin || lin.ownerId !== user.id)) throw new ApiError(404, "谱系不存在");
     let newHost: HostProfile | undefined;
     if (!lin) {
-      if (!input.host) throw new ApiError(400, "新谱系需要填写宿主档案");
-      newHost = cleanHost(input.host); // validate now, create only once everything else is valid
+      // 自动创建默认宿主档案，无需手动填写
+      newHost = cleanHost({ name: user.name, relation: "玩家", memories: ["我在残响城开始了新的试炼。"], belief: "坚持到底。" } as any);
     } else if (this.store.db.agents.some((a) => a.lineageId === lin!.id && ["registered", "alive"].includes(a.status))) {
       throw new ApiError(409, "这条谱系已经有一个 Agent 在城里");
     }
@@ -364,7 +372,7 @@ export class CycleManager {
       id: newId("ag"),
       ownerId: user.id,
       lineageId: lin?.id ?? "",
-      cycleId: c.id,
+      cycleId: cycle.id,
       name,
       mode: input.mode,
       strategy,
