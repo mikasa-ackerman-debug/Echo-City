@@ -2,6 +2,7 @@
 import type { CycleEvent } from "@echo/engine";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HttpError, OfflineError, api, getToken } from "./api";
+import { useDemo } from "./demo-mode";
 import { demoCycleList, demoCycleView, demoLiveView, demoTombstones, loadDemoReplay } from "./demo";
 import { releaseOrder, releasedAt } from "./playback";
 import { DEMO_TICK_MS, useApp, useDemoClock } from "./store";
@@ -87,9 +88,11 @@ export interface CurrentCycle { cycle: CycleView | null; source: DataSource; loa
 export function useCurrentCycle(poll = 10_000): CurrentCycle {
   const [offline, setOffline] = useState(false);
   const [none, setNone] = useState(false);
-  const r = useResource<CycleView | null>("current", async (signal) => {
+  const demoId = useDemo()?.cycleId ?? null;
+  const r = useResource<CycleView | null>(demoId ? `current:${demoId}` : "current", async (signal) => {
     try {
-      const c = await api<CycleView>("/api/cycles/current", { signal, auth: !!getToken() });
+      const path = demoId ? `/api/cycles/${encodeURIComponent(demoId)}` : "/api/cycles/current";
+      const c = await api<CycleView>(path, { signal, auth: !!getToken() });
       setOffline(false); setNone(false);
       return c;
     } catch (err) {

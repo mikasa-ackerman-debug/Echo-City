@@ -28,8 +28,8 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export async function api<T>(path: string, init: { method?: string; body?: unknown; auth?: boolean; signal?: AbortSignal } = {}): Promise<T> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+export async function api<T>(path: string, init: { method?: string; body?: unknown; auth?: boolean; signal?: AbortSignal; headers?: Record<string, string> } = {}): Promise<T> {
+  const headers: Record<string, string> = { "content-type": "application/json", ...init.headers };
   const token = getToken();
   if (token && init.auth !== false) headers.authorization = `Bearer ${token}`;
   let res: Response;

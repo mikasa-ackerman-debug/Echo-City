@@ -95,7 +95,7 @@ export function createApp(opts: AppOptions) {
       whisper: manager.whisperWindow(c.id),
     };
   };
-  route("GET", "/api/cycles", () => store.db.cycles.map((c) => ({ id: c.id, status: c.status, mode: c.mode, startsAt: c.startsAt, endedAt: c.endedAt, agents: c.agentIds.length || store.db.agents.filter((a) => a.cycleId === c.id).length, winner: c.summary?.winner?.name ?? null, ending: c.summary?.ending ?? null, endingTitle: c.summary?.endingTitle ?? null })).reverse());
+  route("GET", "/api/cycles", () => store.db.cycles.filter((c) => !c.demo).map((c) => ({ id: c.id, status: c.status, mode: c.mode, startsAt: c.startsAt, endedAt: c.endedAt, agents: c.agentIds.length || store.db.agents.filter((a) => a.cycleId === c.id).length, winner: c.summary?.winner?.name ?? null, ending: c.summary?.ending ?? null, endingTitle: c.summary?.endingTitle ?? null })).reverse());
   route("GET", "/api/cycles/current", () => {
     const c = manager.currentCycle();
     if (!c) throw new ApiError(404, "还没有任何轮回");
@@ -104,6 +104,9 @@ export function createApp(opts: AppOptions) {
   route("GET", "/api/cycles/:id", ({ params }) => cycleView(params.id));
   route("POST", "/api/cycles", ({ body }) => publicData(manager.createCycle(body ?? {})), "admin");
   route("POST", "/api/cycles/:id/start", ({ params }) => publicData(manager.start(params.id)), "admin");
+  // Admin demo backdoor: a private compressed week (own agent + mock bots), hidden from public lists.
+  route("POST", "/api/demo/cycles", ({ body }) => publicData(manager.createDemoCycle({ speed: Number(body?.speed), fillBots: Number(body?.fillBots) })), "admin");
+  route("POST", "/api/demo/cycles/:id/start", ({ params }) => publicData(manager.startDemo(params.id)), "admin");
   route("GET", "/api/cycles/:id/events", ({ params, query, user }) => {
     if (!store.cycle(params.id)) throw new ApiError(404, "轮回不存在");
     return publicData(manager.visibleEvents(params.id, user, parseCursor(query.get("since"))));

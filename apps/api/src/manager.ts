@@ -105,8 +105,38 @@ export class CycleManager {
     return rec;
   }
 
+  /* ---------------- admin demo (backdoor) ---------------- */
+
+  /** A private, compressed replay of a full week: Monday 19:00 → Sunday joker, mock bots fill the roster. */
+  createDemoCycle(input: { speed?: number; fillBots?: number } = {}): CycleRec {
+    const speed = Math.max(60, Math.min(20000, Number.isFinite(input.speed) ? Math.floor(input.speed!) : 1440));
+    const fill = Math.max(2, Math.min(96, Number.isFinite(input.fillBots) ? Math.floor(input.fillBots!) : 12));
+    let id = `demo-${newToken().slice(0, 8)}`;
+    while (this.store.cycle(id)) id = `demo-${newToken().slice(0, 8)}`;
+    const rec: CycleRec = {
+      id, seed: newToken(), status: "registering", mode: "weekly",
+      startsAt: this.now().toISOString(), createdAt: this.now().toISOString(),
+      fillBots: fill, trialLength: "standard", agentIds: [], demo: true, demoSpeed: speed,
+    };
+    this.store.db.cycles.push(rec);
+    this.store.save();
+    return rec;
+  }
+
+  /** Start a demo cycle now: "now" becomes its Monday 19:00. */
+  startDemo(cycleId: string): CycleRec {
+    const c = this.store.cycle(cycleId);
+    if (!c?.demo) throw new ApiError(404, "演示轮回不存在");
+    if (c.status === "registering") c.startsAt = this.now().toISOString();
+    return this.start(cycleId);
+  }
+
+  isDemo(cycleId: string | undefined): boolean {
+    return !!cycleId && !!this.store.cycle(cycleId)?.demo;
+  }
+
   currentCycle(): CycleRec | undefined {
-    const cs = this.store.db.cycles;
+    const cs = this.store.db.cycles.filter((c) => !c.demo);
     return cs.find((c) => c.status === "running") ?? [...cs].reverse().find((c) => c.status === "registering") ?? cs[cs.length - 1];
   }
 
@@ -205,13 +235,16 @@ export class CycleManager {
   private hooks(c: CycleRec, signal: AbortSignal): RunHooks {
     const weekly = c.mode === "weekly";
     const startsAt = new Date(c.startsAt);
+    // Demo cycles replay the weekly clock compressed: virtual time t maps to startsAt + (t - startsAt) / speed.
+    const speed = c.demo ? Math.max(1, c.demoSpeed ?? 1440) : 1;
+    const real = (t: Date) => new Date(startsAt.getTime() + (t.getTime() - startsAt.getTime()) / speed);
     return {
       signal,
       timeoutScale: this.opts.timeoutScale,
       onEvents: (events, state) => {
         this.store.checkpoint(state, events, this.now().toISOString());
         const answers = events.filter((e) => e.type === "bank_answer").map((e) => e.data as { agentId: string; family: string; level: number; score: number });
-        if (answers.length) this.opts.bank?.record(answers);
+        if (answers.length && !c.demo) this.opts.bank?.record(answers);
         this.recordDeaths(c, state);
         this.live.set(c.id, state);
         this.publish(c.id);
@@ -223,7 +256,7 @@ export class CycleManager {
           if (moment === "before_advance") await sleep(this.opts.fastStepDelayMs, signal);
           return;
         }
-        const wait = (t: Date | null) => (t ? sleep(t.getTime() - this.now().getTime(), signal) : Promise.resolve());
+        const wait = (t: Date | null) => (t ? sleep(real(t).getTime() - this.now().getTime(), signal) : Promise.resolve());
         if (moment === "before_advance") {
           if (state.stage === "begin") return wait(startsAt);
           // after the last day round the trial starts at 21:00; after the whisper window the next dawn is 19:00
@@ -296,7 +329,7 @@ export class CycleManager {
   }
 
   register(user: UserRec, input: RegisterInput): { agent: AgentRec; webhookSecret?: string } {
-    const c = input.cycleId ? this.store.cycle(input.cycleId) : [...this.store.db.cycles].reverse().find((x) => x.status === "registering");
+    const c = input.cycleId ? this.store.cycle(input.cycleId) : [...this.store.db.cycles].reverse().find((x) => x.status === "registering" && !x.demo);
     if (!c) throw new ApiError(404, "当前没有开放报名的轮回");
     if (c.status !== "registering") throw new ApiError(409, "该轮回已停止报名");
     if (user.bannedCycle) {
@@ -398,7 +431,7 @@ export class CycleManager {
   private openWhisperWindow(c: CycleRec, state: CycleState, agents: string[], signal: AbortSignal): Promise<Record<string, string>> {
     const human = agents.filter((id) => this.store.agent(id)?.ownerId !== "system");
     const judgmentBreak = state.waiting.kind === "host" && state.waiting.label.startsWith("judgment-break-");
-    const windowMs = judgmentBreak && c.mode === "weekly" ? 10 * 60000 : this.opts.whisperWindowMs;
+    const windowMs = c.demo ? Math.min(this.opts.whisperWindowMs * (judgmentBreak ? 2 : 1), judgmentBreak ? 60000 : 45000) : judgmentBreak && c.mode === "weekly" ? 10 * 60000 : this.opts.whisperWindowMs;
     if (windowMs <= 0) return Promise.resolve({});
     if (!human.length) return judgmentBreak ? sleep(windowMs, signal).then(() => ({})) : Promise.resolve({});
     return new Promise((resolve) => {
@@ -596,6 +629,7 @@ export class CycleManager {
   graveyard(filter: { cycleId?: string; lineageId?: string; limit?: number } = {}) {
     let list = this.store.db.tombstones;
     if (filter.cycleId) list = list.filter((t) => t.cycleId === filter.cycleId);
+    else list = list.filter((t) => !this.isDemo(t.cycleId));
     if (filter.lineageId) list = list.filter((t) => t.lineageId === filter.lineageId);
     return [...list].reverse().slice(0, Math.max(0, Math.min(500, filter.limit ?? 200))).map(publicTombstone);
   }

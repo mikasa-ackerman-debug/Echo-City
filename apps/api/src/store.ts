@@ -70,6 +70,10 @@ export interface CycleRec {
   summary?: CycleSummary;
   /** Agent ids that have entered the roster. */
   agentIds: string[];
+  /** Admin demo cycle: hidden from public lists/graveyard, weekly schedule compressed by `demoSpeed`. */
+  demo?: boolean;
+  /** Virtual seconds per real second for demo cycles (e.g. 1440 → one city day per real minute). */
+  demoSpeed?: number;
 }
 
 export interface TombstoneRec {

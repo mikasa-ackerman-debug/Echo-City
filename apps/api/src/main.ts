@@ -41,8 +41,8 @@ manager.resumeAll();
 
 /* Scheduler: keep one registering cycle open; in weekly mode start it at Monday 19:00. */
 function tick() {
-  const open = store.db.cycles.find((c) => c.status === "registering");
-  const running = store.db.cycles.find((c) => c.status === "running");
+  const open = store.db.cycles.find((c) => c.status === "registering" && !c.demo);
+  const running = store.db.cycles.find((c) => c.status === "running" && !c.demo);
   if (!open && !running && mode === "weekly") {
     const c = manager.createCycle({ mode: "weekly", startsAt: nextMonday1900().toISOString(), fillBots: Number(env.ECHO_FILL_BOTS ?? 12) });
     console.log(`[scheduler] 开放报名：${c.id}，开始于 ${c.startsAt}`);
