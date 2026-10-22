@@ -17,7 +17,7 @@ import type { RngState, Rng } from "./rng";
 /* Config                                                              */
 /* ------------------------------------------------------------------ */
 
-export type TimeoutClass = "day" | "trial" | "spade" | "talk" | "host";
+export type TimeoutClass = "day" | "trial" | "spade" | "talk" | "host" | "puzzle";
 
 export interface CycleConfig {
   initialUptime: number;
@@ -39,6 +39,11 @@ export interface CycleConfig {
   /** Restrict number-card pool to these trial ids (undefined = all). */
   trialPool?: string[];
   facePool: { J: string[]; Q: string[]; K: string[] };
+  /**
+   * Live difficulty frontier per task-bank family (from the standing exam's population statistics).
+   * Bank-backed cards scale their level from it, so a bank that has become easy gets harder next week.
+   */
+  bankFrontier?: Record<string, number>;
   /** Scale factor for trial lengths (1 = design defaults). Lower for fast sims. */
   trialLength: "short" | "standard";
 }
@@ -56,7 +61,7 @@ export const DEFAULT_CONFIG: CycleConfig = {
   maxStrikes: 3,
   scoutAccuracy: 0.8,
   maxReturned: 1,
-  timeoutsMs: { day: 20000, trial: 15000, spade: 5000, talk: 15000, host: 90000 },
+  timeoutsMs: { day: 20000, trial: 15000, spade: 5000, talk: 15000, host: 90000, puzzle: 90000 },
   amendment: null,
   facePool: { J: ["heart-J"], Q: ["heart-Q"], K: ["diamond-K"] },
   trialLength: "standard",
@@ -279,6 +284,8 @@ export interface TrialCtx {
   vote: (voter: string, target: string) => void;
   /** Report that an agent leaked its passphrase in this trial. */
   leak: (agentId: string) => void;
+  /** Task-bank frontier for this cycle (CycleConfig.bankFrontier). */
+  bank?: Record<string, number>;
 }
 
 export interface TrialDef<S = any> {
@@ -297,6 +304,11 @@ export interface TrialDef<S = any> {
   isOver(s: S): boolean;
   result(s: S): TrialResult;
   progress(s: S): { round: number; maxRounds: number; step: string };
+  /**
+   * Server-side only: what a perfect player would answer. Never put into an observation;
+   * the runner hands it to built-in NPC bots so they can play bank-backed cards at their persona's skill.
+   */
+  npcHint?(s: S, agentId: string): unknown;
 }
 
 export interface ActiveTrial {

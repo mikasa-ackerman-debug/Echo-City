@@ -276,3 +276,7 @@ code { font-family: var(--mono); font-size: .92em; color: var(--paper); }
 .ember { color: var(--ember); }
 .select-all { user-select: all; }
 .sessions__row.is-focus { background: var(--hover-wash); }
+/* task-bank cards on the stage */
+.bank-shared { margin-bottom: 16px; }
+.seat .bank-task { display: block; color: var(--paper-dim); }
+.seat .bank-bar { margin-top: 6px; height: 2px; }

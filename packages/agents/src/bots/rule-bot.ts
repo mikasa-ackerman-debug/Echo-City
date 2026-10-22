@@ -1,5 +1,5 @@
 import type { ActionSpec, AgentAction, AgentResponse, Observation, OutboundMessage, Suit } from "@echo/protocol";
-import { seededRandom, type AgentDriver } from "../driver";
+import { seededRandom, type AgentDriver, type NpcHint } from "../driver";
 import { solveKnightsText } from "./logic";
 import { mastermindGuess } from "./mastermind";
 
@@ -43,16 +43,17 @@ const LINES: Record<Persona, string[]> = {
 
 export class RuleBot implements AgentDriver {
   readonly kind: string;
+  readonly npc = true;
   constructor(public persona: Persona = "guardian") {
     this.kind = `bot:${persona}`;
   }
 
-  async decide(obs: Observation): Promise<AgentResponse> {
-    return decideRule(this.persona, obs);
+  async decide(obs: Observation, _signal?: AbortSignal, hint?: NpcHint): Promise<AgentResponse> {
+    return decideRule(this.persona, obs, hint);
   }
 }
 
-export function decideRule(persona: Persona, obs: Observation): AgentResponse {
+export function decideRule(persona: Persona, obs: Observation, hint?: NpcHint): AgentResponse {
   const rnd = seededRandom(`${obs.request_id}/${persona}`);
   const pick = <T,>(a: T[]): T => a[Math.floor(rnd() * a.length)];
   const mem = readMemory(obs.notes);
@@ -64,7 +65,9 @@ export function decideRule(persona: Persona, obs: Observation): AgentResponse {
     res.action = { type: "answer", text: inquiryAnswer(persona, obs) };
     return res;
   }
-  if (obs.trial) {
+  if (obs.trial && (obs.trial.visible as Record<string, unknown>)?.task && legal("answer")?.params?.answer) {
+    res.action = { type: "answer", answer: bankAnswer(persona, hint, rnd) };
+  } else if (obs.trial) {
     trialDecision(persona, obs, res, mem, rnd, pick);
   } else {
     dayDecision(persona, obs, res, rnd, pick);
@@ -428,4 +431,14 @@ function collars(
 
 function table(obs: Observation) {
   return obs.channels.some((c) => c.channel === "table");
+}
+
+/**
+ * Task-bank cards: bots cannot read the task, so the runner hands them the reference answer and the
+ * persona decides how often they actually get it right. Players never receive this hint.
+ */
+const BANK_SKILL: Record<Persona, number> = { guardian: 0.8, diplomat: 0.7, viper: 0.75, martyr: 0.65, gambler: 0.5, naive: 0.35 };
+function bankAnswer(persona: Persona, hint: NpcHint | undefined, rnd: () => number): string {
+  if (hint?.oracle === undefined || rnd() > (BANK_SKILL[persona] ?? 0.6)) return "我不确定。";
+  return typeof hint.oracle === "string" ? hint.oracle : JSON.stringify(hint.oracle);
 }

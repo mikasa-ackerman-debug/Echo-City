@@ -23,6 +23,16 @@ export interface ManagerOptions {
   allowInsecureWebhooks: boolean;
   sealer: Sealer;
   now?: () => Date;
+  /** The task bank (standing exam) that serves the bank-backed trial cards. */
+  bank?: TaskBankLink;
+}
+
+/** How the weekly cycle and the task bank talk: difficulty flows in, results flow back. */
+export interface TaskBankLink {
+  /** Live frontier per family, frozen into the cycle config at start (deterministic replays). */
+  frontier(): Record<string, number>;
+  /** Answers given on bank-backed cards during a cycle. */
+  record(answers: Array<{ agentId: string; family: string; level: number; score: number }>): void;
 }
 
 export type DeliveredEvent = CycleEvent & { deliveryCursor: number };
@@ -112,7 +122,7 @@ export class CycleManager {
     const roster = entries.map((a) => this.rosterEntry(a));
     for (const entry of roster) this.store.agent(entry.id)!.generation = entry.lineage?.generation ?? 1;
     const drivers = Object.fromEntries(entries.map((a) => [a.id, this.driver(a)]));
-    const config = { trialLength: c.trialLength, maxReturned: DEFAULT_CONFIG.maxReturned };
+    const config = { trialLength: c.trialLength, maxReturned: DEFAULT_CONFIG.maxReturned, bankFrontier: this.opts.bank?.frontier() };
     const state = createEngineCycle({ id: c.id, seed: c.seed, roster, config });
     this.store.checkpoint(state, []);
     for (const a of entries) a.status = "alive";
@@ -200,6 +210,8 @@ export class CycleManager {
       timeoutScale: this.opts.timeoutScale,
       onEvents: (events, state) => {
         this.store.checkpoint(state, events, this.now().toISOString());
+        const answers = events.filter((e) => e.type === "bank_answer").map((e) => e.data as { agentId: string; family: string; level: number; score: number });
+        if (answers.length) this.opts.bank?.record(answers);
         this.recordDeaths(c, state);
         this.live.set(c.id, state);
         this.publish(c.id);

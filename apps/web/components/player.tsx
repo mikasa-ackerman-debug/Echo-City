@@ -129,7 +129,7 @@ export function Player({ events, live = false, myAgentIds = [], onCursorChange, 
     setCursor(Math.max(0, Math.min(events.length, c)));
   }, [events.length]);
 
-  const roundIdx = useMemo(() => events.map((e, i) => ({ e, i })).filter(({ e }) => ["trial_start", "dawn", "agent_deleted", "cycle_end"].includes(e.type) || /_round$|collar_declare|elevator_answer/.test(e.type)).map((x) => x.i + 1), [events]);
+  const roundIdx = useMemo(() => events.map((e, i) => ({ e, i })).filter(({ e }) => ["trial_start", "dawn", "agent_deleted", "cycle_end"].includes(e.type) || /_round$|collar_declare|elevator_answer|bank_answer/.test(e.type)).map((x) => x.i + 1), [events]);
   const stepRound = useCallback((dir: 1 | -1) => {
     const list = roundIdx;
     const target = dir > 0 ? list.find((x) => x > cursor) ?? events.length : [...list].reverse().find((x) => x < cursor) ?? 0;

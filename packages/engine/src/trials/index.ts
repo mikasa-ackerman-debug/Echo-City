@@ -8,13 +8,17 @@ import { heartQ } from "./heart-Q";
 import { club8 } from "./club-8";
 import { spade5 } from "./spade-5";
 import { joker } from "./joker";
+import { BANK_TRIALS, club9, diamond10, diamond2, spade9 } from "./bank";
 
 export const TRIALS: Record<string, TrialDef> = Object.fromEntries(
-  [diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker].map((t) => [t.id, t]),
+  [diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker, ...BANK_TRIALS].map((t) => [t.id, t]),
 );
 
 /** Number cards that may be lit on weekday nights. */
-export const NUMBER_TRIALS = ["diamond-3", "heart-4", "spade-5", "diamond-6", "heart-7", "club-8"];
+export const NUMBER_TRIALS = ["diamond-2", "diamond-3", "heart-4", "spade-5", "diamond-6", "heart-7", "club-8", "spade-9", "club-9", "diamond-10"];
+
+/** Number cards whose puzzles are drawn from the task bank (@echo/exam). */
+export const BANK_TRIAL_IDS = BANK_TRIALS.map((t) => t.id);
 
 export function getTrial(id: string): TrialDef {
   const t = TRIALS[id];
@@ -40,7 +44,8 @@ export function rankWindow(night: number): [number, number] {
   return [5, 10];
 }
 
-export { diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker };
+export { diamond3, diamond6, diamondK, heart4, heartJ, heart7, heartQ, club8, spade5, joker, diamond2, spade9, club9, diamond10 };
+export { bankTrial, bankLevel, BANK_TRIALS, type BankCardSpec, type BankTrialDef } from "./bank";
 export { generatePuzzle, solvePuzzle } from "./diamond-3";
 export { scoreGuess } from "./diamond-6";
 export { resolveBeautyRound, BEAUTY_RULES } from "./diamond-K";

@@ -6,6 +6,7 @@ import {
   type Abilities, type Dimension, type FamilyStats, type TaskPublic,
 } from "@echo/exam";
 import { networkText, injectedText } from "@echo/agents";
+import { BANK_TRIALS } from "@echo/engine";
 import { extractJsonObject, sanitizeText } from "@echo/protocol";
 import { signPayload, HEADER_DEADLINE, HEADER_PROTOCOL, HEADER_REQUEST_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP } from "@echo/protocol/signing";
 import { newId, newToken, type Sealer } from "./crypto";
@@ -75,6 +76,8 @@ interface ExamDb {
   version: 1;
   examinees: ExamineeRec[];
   sessions: SessionRec[];
+  /** Answers recorded from bank-backed cards in the weekly cycle. */
+  trialAnswers?: number;
   stats: Record<string, FamilyStats>;
 }
 
@@ -442,6 +445,33 @@ export class ExamService {
       .sort((a, b) => b.overall - a.overall);
   }
 
+  /** Population frontier per family — handed to each new weekly cycle so bank-backed cards track it. */
+  frontiers(): Record<string, number> {
+    return Object.fromEntries(this.library().flatMap((d) => d.families.map((f) => [f.id, f.frontier])));
+  }
+
+  /**
+   * Answers given on bank-backed trial cards in the weekly cycle. They teach the bank how hard each level
+   * really is, and count toward the ability of an examinee imported from that agent.
+   */
+  recordTrialAnswers(answers: Array<{ agentId: string; family: string; level: number; score: number }>) {
+    for (const x of answers) {
+      let f;
+      try { f = familyOf(x.family); } catch { continue; }
+      const level = Math.max(1, Math.min(f.maxLevel, Math.round(x.level)));
+      const score = Math.max(0, Math.min(1, Number(x.score) || 0));
+      const stats = (this.db.stats[f.id] ??= { levels: {} });
+      const lv = stats.levels[level] ?? { r: prior(level), n: 0, pass: 0 };
+      const e = this.db.examinees.find((y) => y.agentId && y.agentId === x.agentId);
+      const ability = e ? e.abilities[f.dimension] : { r: 1000, n: 8 };
+      const res = update(ability, { r: levelRating(stats, level), n: lv.n }, score);
+      stats.levels[level] = { r: res.difficulty.r, n: res.difficulty.n, pass: lv.pass + (score >= 0.999 ? 1 : 0) };
+      if (e) { e.abilities[f.dimension] = res.ability; e.attempts++; e.lastAt = new Date().toISOString(); }
+      this.db.trialAnswers = (this.db.trialAnswers ?? 0) + 1;
+    }
+    this.save();
+  }
+
   /** The library with live difficulty: which level the population currently sits at. */
   library() {
     const players = this.db.examinees.filter((e) => e.kind !== "house" && e.attempts > 0);
@@ -455,7 +485,8 @@ export class ExamService {
           const l = i + 1, s = st?.levels[l];
           return { level: l, rating: Math.round(levelRating(st, l)), attempts: s?.n ?? 0, passRate: s?.n ? s.pass / s.n : null };
         });
-        return { ...f, levels, frontier: pickLevel(popAbility(d.id), f.maxLevel, st), attempts: levels.reduce((x, l) => x + l.attempts, 0) };
+        const cards = BANK_TRIALS.filter((t) => t.bank.families.includes(f.id)).map((t) => ({ id: t.id, card: `${t.suit}${t.rank}`, name: t.name }));
+        return { ...f, levels, cards, frontier: pickLevel(popAbility(d.id), f.maxLevel, st), attempts: levels.reduce((x, l) => x + l.attempts, 0) };
       }),
     }));
   }

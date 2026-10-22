@@ -93,7 +93,7 @@ const KNOWN_TYPES = [
   "cycle_start", "amendment", "dawn", "venues_lit", "venue_dark", "quiet_night", "finale", "solo_king", "say", "broadcast", "whisper", "whisper_meta", "move", "register",
   "search", "scout", "trade", "pact_offer", "pact_signed", "pact_declined", "pact_broken", "pact_fulfilled", "expose", "pawn", "pawn_detail", "use_item", "share_intel",
   "trial_start", "trial_message", "trial_end", "trial_reveal", "trial_elimination", "rule_added", "gatekeeper_enter", "beauty_round", "beauty_cap", "collar_claim", "collar_declare", "collar_cap",
-  "jack_found", "vote_execute", "vote_none", "dinner_pairs", "dinner_round", "lifeboat_round", "corridor_round", "elevator_answer", "hound_round", "hound_decoy",
+  "jack_found", "vote_execute", "vote_none", "dinner_pairs", "dinner_round", "lifeboat_round", "corridor_round", "elevator_answer", "bank_task", "bank_answer", "hound_round", "hound_decoy",
   "greenhouse_round", "passphrase_leak", "joker_round", "joker_cull", "joker_duel", "joker_duel_round", "agent_deleted", "uptime", "humanity", "thought", "timeout",
   "invalid_action", "no_trial", "night_end", "whisper_open", "host_whisper", "host_silent", "whisper_rejected", "judgment_break", "inquiry_start", "inquiry_question",
   "inquiry_answer", "cycle_end", "passphrase", "self_leak", "venues_secret",

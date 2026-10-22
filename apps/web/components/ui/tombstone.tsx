@@ -64,7 +64,7 @@ export function Tombstone({ t, size = "s", href, mine = false, lit = false }: { 
       <div className="tomb__foot">
         <span>
           {days != null ? `存活 ${days} 天` : ""}
-          {t.cardsCleared?.length ? <> · 通关 <span className="tomb__cards">{t.cardsCleared.slice(0, 4).map((c) => <SuitMark key={c} card={c} />)}</span></> : null}
+          {t.cardsCleared?.length ? <> · 通关 <span className="tomb__cards">{t.cardsCleared.slice(0, 4).map((c, i) => <SuitMark key={`${c}-${i}`} card={c} />)}</span></> : null}
         </span>
         <button type="button" className="candle" aria-pressed={candle.lit} onClick={(e) => { e.preventDefault(); e.stopPropagation(); candle.toggle(); }} aria-label={candle.lit ? "熄灭蜡烛" : "点一支蜡烛"}>
           <Flame aria-hidden /> {candle.count}

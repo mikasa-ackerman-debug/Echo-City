@@ -1,5 +1,5 @@
 "use client";
-import { advance, buildObservation, createCycle, getTrial, NUMBER_TRIALS, type CycleEvent, type CycleState } from "@echo/engine";
+import { advance, buildObservation, createCycle, getTrial, npcHint, NUMBER_TRIALS, type CycleEvent, type CycleState } from "@echo/engine";
 import { decideRule, PERSONAS, type Persona } from "@echo/agents/bots";
 import { useEffect, useMemo, useState } from "react";
 import { Play, RotateCcw } from "lucide-react";
@@ -33,7 +33,7 @@ function simulate(card: string, mine: Persona, name: string, rivals: number, see
     if (s.waiting.kind === "host") { input = { whispers: {} }; continue; }
     if (s.waiting.kind === "agents") {
       const responses: Record<string, ReturnType<typeof decideRule>> = {};
-      for (const q of s.waiting.requests) responses[q.agentId] = decideRule(personas[Number(q.agentId.slice(3))], buildObservation(s, q.agentId, 5000));
+      for (const q of s.waiting.requests) responses[q.agentId] = decideRule(personas[Number(q.agentId.slice(3))], buildObservation(s, q.agentId, 5000), { oracle: npcHint(s, q.agentId) });
       input = { responses };
       continue;
     }

@@ -41,6 +41,7 @@ export function createApp(opts: AppOptions) {
   const rates = new Map<string, { count: number; until: number }>();
   let streams = 0;
   const store = new Store(opts.dataDir);
+  const exam = new ExamService({ dataDir: opts.dataDir, sealer: new Sealer(opts.secretKey), secret: opts.secretKey, allowHttp: opts.allowInsecureWebhooks ?? false, agent: (id) => store.agent(id) });
   const manager = new CycleManager(store, {
     timeoutScale: opts.timeoutScale ?? 1,
     whisperWindowMs: opts.whisperWindowMs ?? 90000,
@@ -48,8 +49,8 @@ export function createApp(opts: AppOptions) {
     allowInsecureWebhooks: opts.allowInsecureWebhooks ?? false,
     sealer: new Sealer(opts.secretKey),
     now: opts.now,
+    bank: { frontier: () => exam.frontiers(), record: (answers) => exam.recordTrialAnswers(answers) },
   });
-  const exam = new ExamService({ dataDir: opts.dataDir, sealer: new Sealer(opts.secretKey), secret: opts.secretKey, allowHttp: opts.allowInsecureWebhooks ?? false, agent: (id) => store.agent(id) });
   const routes: Route[] = [];
   const route = (method: string, path: string, handler: Handler, auth?: Route["auth"]) => {
     const keys: string[] = [];

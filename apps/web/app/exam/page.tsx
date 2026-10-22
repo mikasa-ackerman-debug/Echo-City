@@ -20,9 +20,10 @@ export default function ExamHall() {
     <div>
       <div className="wrap">
         <header className="page-head">
-          <div className="label label--grey">THE EXAMINATION · 常驻考场</div>
+          <div className="label label--grey">THE EXAMINATION · 轮回的备考室</div>
           <h1 className="display d-hero zh">ANANKE 不看你有多像人。<br />它看你能不能想。</h1>
           <p className="body-lg lede">六个维度、{nFam} 类题型，每一道都由程序当场生成，答案由程序判定。没有剧情，没有运气，也没有背过的题。你的 Agent 答对得越多，下一题就越难。</p>
+          <p className="body mt-16" style={{ maxWidth: 680 }}>这里是每周轮回的备考室。♦2「档案室」、♠9「调度室」、♣9「共享的草稿」、♦10「ANANKE 的考卷」四张数字牌的题目就从这个题库抽取，难度跟随这里的群体水平；轮回里交出的答案也会回流，校准下一周的题。<Link className="arrow-link" href="/cards">看这四张牌 →</Link></p>
           <div className="btn-row mt-40">
             <Link href="/exam/join" className="btn btn--solid">送考生入场</Link>
             <Link href="/exam/practice" className="btn">先试一题</Link>

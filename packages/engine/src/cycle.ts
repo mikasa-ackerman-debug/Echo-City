@@ -451,6 +451,7 @@ function trialCtx(k: K, venueId: string, suit: Suit | "joker"): TrialCtx {
     names: Object.fromEntries(Object.values(s.agents).map((a) => [a.id, a.name])),
     amendment: s.amendment?.id ?? null,
     length: s.config.trialLength,
+    bank: s.config.bankFrontier,
     humanity: (ch) => adjustHumanity(k, ch),
     claim: (speaker, target, truthful) => {
       const a = s.agents[speaker];
@@ -976,4 +977,17 @@ function countReturnStreak(previous: Array<{ fate: string }>): number {
   let count = 0;
   for (let i = previous.length - 1; i >= 0 && previous[i].fate === "returned"; i--) count++;
   return count;
+}
+
+/**
+ * Server-side oracle for built-in NPC bots on bank-backed cards: the reference answer of the task
+ * this agent is currently facing. Never included in observations.
+ */
+export function npcHint(s: CycleState, agentId: string): unknown {
+  for (const t of s.trials) {
+    if (t.done || !t.players.includes(agentId)) continue;
+    const def = getTrial(t.trialId);
+    if (def.npcHint) return def.npcHint(t.state, agentId);
+  }
+  return undefined;
 }

@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@echo/protocol": "*"
+    "@echo/protocol": "*",
+    "@echo/exam": "*"
   }
 }

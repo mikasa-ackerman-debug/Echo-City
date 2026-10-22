@@ -85,7 +85,7 @@ export interface View {
   deleted: number;
 }
 
-const ROUND_TYPES = new Set(["beauty_round", "collar_declare", "dinner_round", "dinner_pairs", "lifeboat_round", "corridor_round", "elevator_answer", "hound_round", "joker_round", "joker_duel_round", "vote_execute", "vote_none", "greenhouse_round", "jack_found", "joker_cull", "joker_duel", "passphrase_leak", "hound_decoy", "beauty_cap", "collar_cap"]);
+const ROUND_TYPES = new Set(["beauty_round", "collar_declare", "dinner_round", "dinner_pairs", "lifeboat_round", "corridor_round", "elevator_answer", "hound_round", "joker_round", "joker_duel_round", "vote_execute", "vote_none", "greenhouse_round", "jack_found", "joker_cull", "joker_duel", "passphrase_leak", "hound_decoy", "beauty_cap", "collar_cap", "bank_task", "bank_answer"]);
 const NARRATOR_TYPES = new Set(["dawn", "finale", "venues_lit", "quiet_night", "inquiry_question", "inquiry_start", "joker_cull", "whisper_open", "night_end", "judgment_break", "amendment", "solo_king", "rule_added", "gatekeeper_enter", "venue_dark"]);
 
 export function deriveView(events: CycleEvent[], cursor = events.length): View {

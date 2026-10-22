@@ -194,6 +194,56 @@ describe("exam api", () => {
     expect(hookBad).toBe(0);
   });
 
+  it("the bank serves the weekly cycle: frontier flows in, trial answers flow back", async () => {
+    const lib = (await api("GET", "/api/exam/library")).json;
+    const ledger = lib.flatMap((d: any) => d.families).find((f: any) => f.id === "memory.ledger");
+    expect(ledger.cards.map((c: any) => c.id)).toContain("diamond-2");
+    const before = JSON.parse(JSON.stringify(app.exam.db.stats));
+    const fr = app.exam.frontiers();
+    expect(Object.keys(fr)).toHaveLength(16);
+    // a cycle snapshot carries the frontier; answers recorded during it update the population stats
+    app.exam.recordTrialAnswers([
+      { agentId: "ag_nobody", family: "memory.ledger", level: 2, score: 1 },
+      { agentId: "ag_nobody", family: "memory.ledger", level: 2, score: 1 },
+      { agentId: "ag_nobody", family: "no.such", level: 2, score: 1 },
+    ]);
+    const lv = app.exam.db.stats["memory.ledger"].levels[2];
+    expect(lv.n).toBe((before["memory.ledger"]?.levels?.[2]?.n ?? 0) + 2);
+    expect(app.exam.db.trialAnswers).toBe(2);
+  });
+
+  it("a real cycle run by the manager plays bank cards and reports back", async () => {
+    const d2 = mkdtempSync(join(tmpdir(), "echo-bank-"));
+    const app2 = createApp({ dataDir: d2, adminToken: "adm", secretKey: "exam-secret", timeoutScale: 0.01, whisperWindowMs: 5, fastStepDelayMs: 0 });
+    await new Promise<void>((r) => app2.server.listen(0, "127.0.0.1", r));
+    const b2 = `http://127.0.0.1:${(app2.server.address() as AddressInfo).port}`;
+    const call = (method: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
+      fetch(b2 + path, { method, headers: { "content-type": "application/json", ...extra }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: (await r.json()) as any }));
+    try {
+      const host = { name: "某人", relation: "助手", memories: ["一。", "二。", "三。"], belief: "活着。" };
+      const cyc = (await call("POST", "/api/cycles", { mode: "fast", trialLength: "short" }, { "x-admin-token": "adm" })).json;
+      for (let i = 0; i < 8; i++) {
+        const t = (await call("POST", "/api/users", { name: `c${i}` })).json.token;
+        expect((await call("POST", "/api/agents", { cycleId: cyc.id, name: `Bank${i}`, mode: "bot", bot: { persona: "guardian" }, host }, { authorization: `Bearer ${t}` })).status).toBe(200);
+      }
+      expect((await call("POST", `/api/cycles/${cyc.id}/start`, {}, { "x-admin-token": "adm" })).status).toBe(200);
+      const live = (app2.manager as any).live.get(cyc.id);
+      expect(live?.config?.bankFrontier?.["logic.knights"]).toBeTypeOf("number");
+      for (let i = 0; i < 1200; i++) {
+        if ((await call("GET", `/api/cycles/${cyc.id}`)).json.status === "ended") break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect((await call("GET", `/api/cycles/${cyc.id}`)).json.status).toBe("ended");
+      const replay = (await call("GET", `/api/cycles/${cyc.id}/replay`)).json;
+      const n = replay.events.filter((e: any) => e.type === "bank_answer").length;
+      expect(app2.exam.db.trialAnswers ?? 0).toBe(n);
+    } finally {
+      app2.server.close();
+      app2.manager.stopAll();
+      rmSync(d2, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it("persists to exam.json", async () => {
     app.exam.flush();
     const again = createApp({ dataDir: dir, adminToken: "adm", secretKey: "exam-secret" });

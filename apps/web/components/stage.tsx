@@ -1,6 +1,6 @@
 "use client";
 import type { CycleEvent } from "@echo/engine";
-import { getTrial } from "@echo/engine";
+import { BANK_TRIAL_IDS, getTrial } from "@echo/engine";
 import { useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { list, num, numMap, pos, rec, recs, str, strMap, strs } from "@/lib/ev";
@@ -101,6 +101,7 @@ function StageBody(p: StageProps & { focus?: CycleEvent }) {
   if (t === "spade-5") return <Hound {...p} ev={last} />;
   if (t === "diamond-6") return <Corridor venue={venue} upto={last} />;
   if (t === "diamond-3") return <Elevator venue={venue} />;
+  if (BANK_TRIAL_IDS.includes(t)) return <Bank venue={venue} upto={last} />;
   if (t === "heart-7") return <Dinner venue={venue} ev={last} />;
   if (t === "joker") return <Joker venue={venue} />;
   return <Table {...p} />;
@@ -288,6 +289,38 @@ function Corridor({ venue, upto }: { venue: VenueLite; upto?: CycleEvent }) {
           }))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ---------- task-bank cards (♦2 ♠9 ♣9 ♦10): puzzles drawn from ANANKE's task bank ---------- */
+function Bank({ venue, upto }: { venue: VenueLite; upto?: CycleEvent }) {
+  const seen = venue.rounds.filter((e) => e.seq <= (upto?.seq ?? Infinity));
+  const tasks = seen.filter((e) => e.type === "bank_task");
+  const answers = seen.filter((e) => e.type === "bank_answer");
+  const shared = tasks.find((e) => e.data.agent === null);
+  const taskOf = (n: string) => shared ?? tasks.find((e) => str(e.data.agent) === n);
+  const fam = (e?: CycleEvent) => (e ? `${str(e.data.title)} · L${e.data.level}` : "…");
+  return (
+    <div>
+      {shared && <p className="data grey bank-shared">全场共用一道题 · {fam(shared)}</p>}
+      <div className="seats">
+        {venue.players.map((n) => {
+          const mineA = answers.filter((a) => str(a.data.agent) === n);
+          const best = Math.max(0, ...mineA.map((a) => Number(a.data.score) || 0));
+          const ok = mineA.some((a) => a.data.ok === true);
+          return (
+            <div key={n} className={`seat${ok ? " seat--win" : ""}`}>
+              <Sigil id={n} size={30} />
+              <span className="seat__name">{n}</span>
+              {!shared && <span className="micro bank-task">{fam(taskOf(n))}</span>}
+              <span className="seat__out">{mineA.length ? mineA.map((a) => `${Math.round((Number(a.data.score) || 0) * 100)}%`).join(" → ") : "解题中"}</span>
+              {mineA.length > 0 && <span className="scorebar bank-bar"><span style={{ width: `${best * 100}%` }} /></span>}
+            </div>
+          );
+        })}
+      </div>
+      <p className="micro mt-16">题目来自 ANANKE 的题库。<a className="link" href="/exam">在备考室练习同类题 →</a></p>
     </div>
   );
 }

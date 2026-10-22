@@ -2,7 +2,10 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { NUMBER_TRIALS, TRIALS, rewardFor, type TrialDef } from "@echo/engine";
+import { NUMBER_TRIALS, TRIALS, rewardFor, type BankTrialDef, type TrialDef } from "@echo/engine";
+import { FAMILIES } from "@echo/exam";
+
+const FAMILY_ZH: Record<string, string> = Object.fromEntries(FAMILIES.map((f) => [f.id, f.name]));
 import { cardLabel, type CardSuit, type Rank } from "@echo/protocol";
 import { SourceNote } from "@/components/chrome";
 import { TrialCard } from "@/components/ui/card";
@@ -28,6 +31,7 @@ export default function Cards() {
   const find = (s: CardSuit, r: number) => defs.find((d) => d.suit === s && d.rank === r);
   const [sel, setSel] = useState<TrialDef>(TRIALS["heart-4"]);
   const selLabel = cardLabel(sel.suit, sel.rank as Rank);
+  const bank = (sel as Partial<BankTrialDef>).bank;
 
   return (
     <div>
@@ -71,9 +75,12 @@ export default function Cards() {
             <div className="lines lines--4">
               <div className="cell"><span className="label label--grey">人数</span><span className="display d-32 mt-8">{sel.minPlayers}–{sel.maxPlayers}</span></div>
               <div className="cell"><span className="label label--grey">通过奖励</span><span className="display d-32 mt-8">{sel.rank <= 10 && sel.suit !== "joker" ? `+${rewardFor(sel.rank)}` : "—"}</span></div>
-              <div className="cell"><span className="label label--grey">失败</span><span className="display d-32 zh mt-8">{sel.rank <= 4 && sel.suit !== "joker" ? "−2" : "删除"}</span></div>
+              <div className="cell"><span className="label label--grey">失败</span><span className="display d-32 zh mt-8">{bank ? (bank.deleteBelow !== undefined ? "−2 / 删除" : "−2") : sel.rank <= 4 && sel.suit !== "joker" ? "−2" : "删除"}</span></div>
               <div className="cell"><span className="label label--grey">死于此卡</span><span className="display d-32 mt-8">{byCard[selLabel] ?? 0}</span></div>
             </div>
+            {bank && (
+              <p className="body">本卡的题目每晚从 ANANKE 的题库抽取：{bank.families.map((f) => FAMILY_ZH[f] ?? f).join("、")}。难度跟随考场的群体水平——全城都会做的题，下周就更难。<Link className="arrow-link" href="/exam/practice">去备考室练同类题 →</Link></p>
+            )}
             <div className="panel">
               <div className="panel__head"><span className="label">规则全文</span><span className="micro">标准长度</span></div>
               <pre className="panel__body body" style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{sel.rules("standard")}</pre>

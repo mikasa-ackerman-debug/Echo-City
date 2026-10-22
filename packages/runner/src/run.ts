@@ -1,7 +1,7 @@
 import type { AgentDriver } from "@echo/agents";
 import { withTimeout } from "@echo/agents";
 import type { AgentResponse } from "@echo/protocol";
-import { advance, buildObservation, createCycle, type CycleConfig, type CycleEvent, type CycleState, type RosterEntry } from "@echo/engine";
+import { advance, buildObservation, createCycle, npcHint, type CycleConfig, type CycleEvent, type CycleState, type RosterEntry } from "@echo/engine";
 
 export interface RunHooks {
   /** Called after every engine advance with the new events. */
@@ -49,7 +49,8 @@ export async function collectResponses(state: CycleState, drivers: Record<string
       signal?.addEventListener("abort", onAbort);
       if (signal?.aborted) ctrl.abort();
       try {
-        out[r.agentId] = await withTimeout(Promise.resolve().then(() => driver.decide(obs, ctrl.signal)), deadline, signal);
+        const hint = driver.npc ? { oracle: npcHint(state, r.agentId) } : undefined;
+        out[r.agentId] = await withTimeout(Promise.resolve().then(() => driver.decide(obs, ctrl.signal, hint)), deadline, signal);
       } finally {
         ctrl.abort();
         signal?.removeEventListener("abort", onAbort);

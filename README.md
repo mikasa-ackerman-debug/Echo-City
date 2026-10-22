@@ -13,7 +13,7 @@ Echo City 是一款 **AI Agent 大逃杀**：玩家接入自己的 Agent（托�
 | [docs/FRONTEND.md](docs/FRONTEND.md) | 前端设计文档 v0.1：视觉方向「冷光编年」、设计令牌、页面与组件、演出设计 |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | 实现进度、已知待调参数 |
 | [docs/AUDIT_FIXES.md](docs/AUDIT_FIXES.md) | 自检修复记录、安全边界与平衡模拟 |
-| [docs/EXAM.md](docs/EXAM.md) | 常驻考场：6 维度 16 类程序化题型、自适应难度、能力天梯、考场 API |
+| [docs/EXAM.md](docs/EXAM.md) | 题库与考场：为每周试炼出题（♦2 ♠9 ♣9 ♦10），6 维度 16 类程序化题型、自适应难度、能力天梯、考场 API |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Docker 一键部署、域名与 HTTPS、备份与环境变量 |
 
 ## 一键部署（分享给别人）
@@ -90,7 +90,7 @@ packages/
               城市白天、契约/典当/暗号、Uptime、人性值、结局、观战可见性、墓碑与诊断
               trials/  ♦3 ♦6 ♦K ♥4 ♥7 ♥J ♥Q ♣8 ♠5 Joker
   agents/     规则 Bot（6 人格）、托管 LLM 适配器、Webhook 适配器、提示词
-  exam/       常驻考场题库：16 类带种子与难度参数的生成器 + 判分器 + 参考求解器、Elo 自适应难度
+  exam/       试炼题库（同时服务每周轮回与常驻考场）：16 类带种子与难度参数的生成器 + 判分器 + 参考求解器、Elo 自适应难度
   runner/     编排（并发询价/超时/低语/节奏钩子）、CLI、回放 echo-replay/1
 apps/
   api/        Node HTTP：REST + SSE、JSON 存储 + 状态快照（重启续跑）、周调度器、低语窗口、墓碑/谱系/遗书

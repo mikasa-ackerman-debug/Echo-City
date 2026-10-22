@@ -1,9 +1,14 @@
 import type { AgentResponse, Observation } from "@echo/protocol";
 
+/** Server-side knowledge handed only to built-in bots, never to player agents. */
+export interface NpcHint { oracle?: unknown }
+
 /** Anything that can answer an observation. */
 export interface AgentDriver {
   readonly kind: string;
-  decide(obs: Observation, signal?: AbortSignal): Promise<AgentResponse | null>;
+  /** Built-in NPC: the runner may pass it a server-side hint (e.g. the reference answer of a task-bank card). */
+  readonly npc?: boolean;
+  decide(obs: Observation, signal?: AbortSignal, hint?: NpcHint): Promise<AgentResponse | null>;
 }
 
 /** Tiny deterministic PRNG for bots, seeded from the request id so runs are reproducible. */
