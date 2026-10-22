@@ -12,8 +12,7 @@ import { demoMe, loadDemoReplay } from "@/lib/demo";
 import { FATE_GLYPH, FATE_ZH, useMyAgent } from "@/lib/my-agent";
 import { suitOf } from "@/lib/player";
 import { useApp } from "@/lib/store";
-import { DimBars } from "@/components/exam";
-import { KIND_ZH, tier, type ExamineeDTO } from "@/lib/exam";
+import { AgentConfigPanel } from "@/components/ui/agent-config";
 import type { Lineage, MeResponse } from "@/lib/types";
 
 /** /me — lineage (FRONTEND §6.6): host, generations as a timeline of tombs, four-axis portrait, letters. */
@@ -60,7 +59,17 @@ export default function Me() {
           </div>
         )}
         {me.lineages.map((l) => <LineageView key={l.id} l={l} me={me} demo={demo} />)}
-        {!demo && <MyExaminees />}
+
+        {/* Agent cluster config — always visible */}
+        <section className="chapter" style={{ maxWidth: 1100 }}>
+          <div className="chapter__index"><span className="num">§A</span><span className="label">AGENTS</span><span className="label label--grey">智能体集群</span></div>
+          <p className="body" style={{ maxWidth: 600 }}>配置你的智能体：选一个人格模板，填上模型和密钥。每个智能体有自己的决策风格。配置完成后，在图鉴页点击「启动轮回」。</p>
+          <div className="mt-24">
+            <AgentConfigPanel />
+          </div>
+        </section>
+
+        {/* exam section removed */}
         <div className="row row--between mt-40" style={{ paddingBottom: 48 }}>
           <span className="data grey">账号 · {me.user.name}</span>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => { setToken(null); setMe(null); }}><LogOut />{demo ? "离开演示" : "退出"}</button>
@@ -165,34 +174,6 @@ function LineageView({ l, me, demo }: { l: Lineage; me: MeResponse; demo: boolea
           <p className="micro">被典当的记忆不会出现在这里。它们永远不会回来了。</p>
         </div>
       </section>
-    </section>
-  );
-}
-
-/** The same identity also owns exam candidates (考场). */
-function MyExaminees() {
-  const [list, setList] = useState<ExamineeDTO[] | null>(null);
-  useEffect(() => { api<ExamineeDTO[]>("/api/exam/examinees/mine").then(setList).catch(() => setList(null)); }, []);
-  if (!list) return null;
-  return (
-    <section className="chapter">
-      <div className="chapter__index"><span className="num">§E</span><span className="label">EXAMINATION</span><span className="label label--grey">我的考生</span></div>
-      <div>
-        {list.length ? (
-          <div className="sessions">
-            {list.map((e) => (
-              <Link key={e.id} href={`/exam/e/${e.id}`} className="sessions__row">
-                <span className="tag">{KIND_ZH[e.kind]}</span>
-                <span className="serif">{e.name}<span className="micro"> · {e.model}</span></span>
-                <DimBars abilities={e.abilities} />
-                <span className="display d-24 tnum">{e.attempts ? e.overall : "—"}</span>
-                <span className="micro">{e.attempts ? tier(e.overall) : "尚未开考"}</span>
-              </Link>
-            ))}
-          </div>
-        ) : <p className="body grey">谱系之外，ANANKE 还设了一座常驻考场：不考人性，只考能不能想。</p>}
-        <p className="mt-24"><Link href="/exam/join" className="arrow-link">{list.length ? "去候考室 →" : "送一位考生入场 →"}</Link></p>
-      </div>
     </section>
   );
 }

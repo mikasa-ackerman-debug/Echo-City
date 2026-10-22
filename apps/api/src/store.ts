@@ -2,6 +2,7 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, 
 import { join } from "node:path";
 import type { HostProfile, LineageEntry } from "@echo/protocol";
 import type { CycleEvent, CycleState, CycleSummary } from "@echo/engine";
+import type { RoundState, CardRoom } from "./rooms";
 
 /* ------------------------------------------------------------------ */
 /* Records                                                             */
@@ -47,6 +48,12 @@ export interface AgentRec {
   hosted?: { baseUrl: string; model: string; apiKey: string };
   webhook?: { url: string; secret: string };
   bot?: { persona: string };
+  /** LLM persona: system prompt for autonomous decisions. */
+  persona?: string;
+  /** Card selection preference (suit/dimension hints). */
+  preference?: string;
+  /** Cumulative score across trials. */
+  score?: number;
   returned?: boolean;
   humanity?: number;
   generation?: number;
@@ -98,6 +105,46 @@ export interface TombstoneRec {
   diagnosis: string[];
 }
 
+/* ---------------- trial records ---------------- */
+
+export interface TrialParticipant {
+  id: string;
+  name: string;
+  passed: boolean;
+  score?: number;
+  survivalRounds?: number;
+  notable?: string;
+  /** Points earned in this trial (passed=100+, failed=0-30). */
+  points?: number;
+}
+
+export interface TrialRecord {
+  id: string;
+  /** Card identity from the compendium. */
+  card: string;
+  cardName: string;
+  suit: "♦" | "♥" | "♣" | "♠" | "JOKER";
+  rank: number;
+  /** Evaluation dimension. */
+  dimension: string;
+  dimensionName: string;
+  dimensionWeights?: Record<string, number>;
+  level: number;
+  playerCount: number;
+  flavor?: string;
+  /** Generated script metadata. */
+  script: {
+    title: string;
+    summary: string;
+    path: string;
+  };
+  participants: TrialParticipant[];
+  status: "running" | "completed" | "aborted";
+  createdAt: string;
+  completedAt?: string;
+  notes?: string;
+}
+
 interface DbShape {
   version: 1;
   users: UserRec[];
@@ -105,6 +152,9 @@ interface DbShape {
   agents: AgentRec[];
   cycles: CycleRec[];
   tombstones: TombstoneRec[];
+  trialRecords: TrialRecord[];
+  rounds: RoundState[];
+  rooms: CardRoom[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -126,12 +176,12 @@ export class Store {
 
   constructor(readonly dir: string | null, readonly historyCacheLimit = 16) {
     if (!Number.isSafeInteger(historyCacheLimit) || historyCacheLimit < 0) throw new Error("Invalid history cache limit");
-    this.db = { version: 1, users: [], lineages: [], agents: [], cycles: [], tombstones: [] };
+    this.db = { version: 1, users: [], lineages: [], agents: [], cycles: [], tombstones: [], trialRecords: [], rounds: [], rooms: [] };
     if (dir) {
       mkdirSync(join(dir, "events"), { recursive: true });
       mkdirSync(join(dir, "states"), { recursive: true });
       const f = join(dir, "db.json");
-      if (existsSync(f)) this.db = { ...this.db, ...JSON.parse(readFileSync(f, "utf8")) };
+      if (existsSync(f)) this.db = { version: 1, users: [], lineages: [], agents: [], cycles: [], tombstones: [], trialRecords: [], rounds: [], rooms: [], ...JSON.parse(readFileSync(f, "utf8")) };
     }
   }
 
@@ -297,6 +347,9 @@ export class Store {
   }
   agent(id: string) {
     return this.db.agents.find((a) => a.id === id);
+  }
+  trialRecord(id: string) {
+    return this.db.trialRecords.find((t) => t.id === id);
   }
 }
 

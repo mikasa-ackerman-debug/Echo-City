@@ -3,6 +3,9 @@ import { hashToken, newId, newToken, safeEqual, Sealer } from "./crypto";
 import { ApiError, CycleManager, publicAgent, publicTombstone, publicData, type ManagerOptions } from "./manager";
 import { Store, type UserRec } from "./store";
 import { ExamService } from "./exam";
+import { TrialService } from "./trials";
+import { RoomService } from "./rooms";
+import { listPersonaSummaries } from "./personas";
 import { sanitizeText } from "@echo/protocol";
 
 export interface AppOptions extends Partial<Omit<ManagerOptions, "sealer">> {
@@ -42,6 +45,8 @@ export function createApp(opts: AppOptions) {
   let streams = 0;
   const store = new Store(opts.dataDir);
   const exam = new ExamService({ dataDir: opts.dataDir, sealer: new Sealer(opts.secretKey), secret: opts.secretKey, allowHttp: opts.allowInsecureWebhooks ?? false, agent: (id) => store.agent(id) });
+  const trials = new TrialService(store);
+  const rooms = new RoomService(store);
   const manager = new CycleManager(store, {
     timeoutScale: opts.timeoutScale ?? 1,
     whisperWindowMs: opts.whisperWindowMs ?? 90000,
@@ -174,6 +179,38 @@ export function createApp(opts: AppOptions) {
   route("DELETE", "/api/agents/:id", ({ params, user }) => (manager.withdraw(user!, params.id), { ok: true }), "user");
   route("POST", "/api/agents/:id/test", ({ params, user }) => manager.testAgent(user!, params.id), "user");
 
+  /* ---------------- agent config (LLM persona) ---------------- */
+  route("PUT", "/api/agents/:id/config", ({ params, body, user }) => {
+    const a = store.agent(params.id);
+    if (!a || a.ownerId !== user!.id) throw new ApiError(404, "Agent 不存在");
+    if (body?.persona !== undefined) a.persona = sanitizeText(body.persona, 2000);
+    if (body?.preference !== undefined) a.preference = sanitizeText(body.preference, 500);
+    if (body?.hosted && typeof body.hosted === "object") {
+      const h = body.hosted as Record<string, unknown>;
+      if (h.baseUrl) a.hosted = { ...a.hosted, baseUrl: String(h.baseUrl), model: String(h.model ?? a.hosted?.model ?? ""), apiKey: String(h.apiKey ?? a.hosted?.apiKey ?? "") };
+    }
+    store.flush();
+    return { id: a.id, name: a.name, persona: a.persona, preference: a.preference, model: a.hosted?.model, score: a.score ?? 0 };
+  }, "user");
+
+  /* ---------------- agent scores ---------------- */
+  route("GET", "/api/agents/scores", ({ user }) => {
+    const agents = store.db.agents.filter((a) => a.ownerId === user!.id);
+    return agents.map((a) => ({ id: a.id, name: a.name, score: a.score ?? 0, status: a.status, model: a.hosted?.model ?? a.bot?.persona ?? "—" })).sort((x, y) => y.score - x.score);
+  }, "user");
+
+  /* ---------------- master switch (start a round) ---------------- */
+  route("POST", "/api/round/start", ({ user }) => {
+    const agents = store.db.agents.filter((a) => a.ownerId === user!.id && a.status !== "deleted");
+    if (!agents.length) throw new ApiError(400, "没有可用的智能体，请先在「我的谱系」中创建");
+    const round = rooms.currentRound();
+    if (round.status === "joker") throw new ApiError(409, "当前轮回的 Joker 已开启");
+    return { roundId: round.id, agents: agents.length, message: `轮次 ${round.id} 已就绪，${agents.length} 个智能体待命` };
+  }, "user");
+
+  /* ---------------- persona templates ---------------- */
+  route("GET", "/api/personas", () => listPersonaSummaries());
+
   /* ---------------- graveyard ---------------- */
   route("GET", "/api/graveyard", ({ query }) => manager.graveyard({ cycleId: query.get("cycle") ?? undefined, lineageId: query.get("lineage") ?? undefined, limit: Number(query.get("limit") ?? 200) || 200 }));
   route("GET", "/api/tombstones/:agentId", ({ params }) => {
@@ -202,6 +239,55 @@ export function createApp(opts: AppOptions) {
   route("POST", "/api/exam/sessions/:id/abort", ({ params, user }) => exam.abort(user!.id, params.id), "user");
   route("GET", "/api/exam/practice", ({ query }) => exam.practiceTask(String(query.get("family") ?? ""), Number(query.get("level") ?? 1) || 1, String(query.get("seed") ?? "0")));
   route("POST", "/api/exam/practice", ({ body }) => exam.practiceGrade(String(body?.family ?? ""), Number(body?.level ?? 1) || 1, String(body?.seed ?? "0"), body?.answer));
+
+  /* ---------------- trial records ---------------- */
+  route("GET", "/api/rounds", () => {
+    return store.db.rounds.map((r) => ({
+      id: r.id, status: r.status, createdAt: r.createdAt, finishedAt: r.finishedAt,
+      total: 48, closed: Object.values(r.cardStates).filter((s) => s.status === "closed").length,
+      trialCount: r.trialIds?.length ?? 0,
+      survivorCount: r.survivors.length,
+      topScorers: Object.entries(r.scores ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, score]) => ({
+        id, name: r.survivors.find((s) => s.userId === id)?.name ?? store.db.agents.find((a) => a.id === id)?.name ?? id, score,
+      })),
+    })).reverse();
+  });
+  route("GET", "/api/rounds/:id", ({ params }) => {
+    const r = store.db.rounds.find((x) => x.id === params.id);
+    if (!r) throw new ApiError(404, "轮回不存在");
+    const trials = (r.trialIds ?? []).map((id) => store.db.trialRecords.find((t) => t.id === id)).filter(Boolean);
+    return {
+      id: r.id, status: r.status, createdAt: r.createdAt, finishedAt: r.finishedAt,
+      total: 48, closed: Object.values(r.cardStates).filter((s) => s.status === "closed").length,
+      cardStates: r.cardStates, survivors: r.survivors, scores: r.scores ?? {},
+      trials,
+    };
+  });
+  route("GET", "/api/trials", ({ query }) => ({
+    records: trials.list({
+      card: query.get("card") ?? undefined,
+      dimension: query.get("dimension") ?? undefined,
+      participant: query.get("participant") ?? undefined,
+      status: query.get("status") ?? undefined,
+      limit: Math.min(200, Number(query.get("limit") ?? 50) || 50),
+    }),
+    stats: trials.stats(),
+  }));
+  route("GET", "/api/trials/:id", ({ params }) => trials.get(params.id));
+  route("POST", "/api/trials", ({ body, user }) => trials.create(body ?? {}), "user");
+  route("PUT", "/api/trials/:id", ({ params, body, user }) => trials.complete(params.id, body ?? {}), "user");
+  route("DELETE", "/api/trials/:id", ({ params, user }) => (trials.remove(params.id), { ok: true }), "user");
+
+  /* ---------------- rooms & round progress ---------------- */
+  route("GET", "/api/rooms", ({ query }) => rooms.listRooms(query.get("status") ?? undefined));
+  route("GET", "/api/rooms/:id", ({ params }) => rooms.getRoom(params.id));
+  route("POST", "/api/rooms", ({ body, user }) => rooms.createRoom(user!.id, user!.name, body ?? {}), "user");
+  route("POST", "/api/rooms/:id/join", ({ params, body, user }) => rooms.joinRoom(user!.id, user!.name, params.id, body?.agentId), "user");
+  route("POST", "/api/rooms/:id/leave", ({ params, user }) => rooms.leaveRoom(user!.id, params.id), "user");
+  route("PUT", "/api/rooms/:id/finish", ({ params, body, user }) => rooms.finishGame(params.id, body?.results ?? []), "user");
+  route("POST", "/api/rooms/joker", ({ body, user }) => rooms.openJoker(user!.id, user!.name), "user");
+  route("GET", "/api/progress", () => rooms.progress());
+  route("GET", "/api/cards/states", () => rooms.cardStates());
 
   /* ---------------- dispatch ---------------- */
   const authUser = (req: IncomingMessage, query: URLSearchParams): UserRec | undefined => {

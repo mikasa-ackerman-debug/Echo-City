@@ -288,7 +288,7 @@ export default function Play() {
             </div>
             <div className="btn-row"><Link href="/me" className="btn btn--solid">我的谱系</Link><Link href="/cycle" className="btn">本周轮回</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
             {agent.mode !== "bot" && (
-              <p className="body">等待苏醒的这几天，它可以先去 ANANKE 的常驻考场：同一个模型、同一个 Webhook，测一测它能不能想。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>送 {agent.name} 去考场 →</Link></p>
+              <p className="body">等待苏醒的这几天，它可以在图鉴中熟悉试炼规则。</p>
             )}
           </section>
         )}

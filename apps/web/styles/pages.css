@@ -141,7 +141,19 @@ a.gens__item:hover .gens__fate { border-color: var(--line-strong); }
 .deck__grid { display: grid; gap: 10px; min-width: 980px; }
 .deck__row { display: grid; grid-template-columns: 96px repeat(12, 64px); gap: 10px; align-items: center; }
 .deck__suit { display: grid; gap: 4px; }
-.deck__cell { display: grid; place-items: center; }
+.deck__cell { display: grid; place-items: center; position: relative; }
+.deck__stamp {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-32deg);
+  font: 700 11px/1 var(--sans); letter-spacing: 0.12em;
+  color: #e04040; border: 1.5px solid #e04040; border-radius: 2px;
+  padding: 3px 6px; white-space: nowrap; pointer-events: none;
+  text-transform: uppercase; opacity: 0.92;
+}
+.deck__dot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; pointer-events: none; }
+.deck__dot--wait { background: var(--ember); box-shadow: 0 0 6px var(--ember); animation: pulse 1.6s ease-in-out infinite; }
+.deck__dot--run { background: #e04040; box-shadow: 0 0 6px #e04040; animation: pulse 0.8s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .deck__joker { display: grid; justify-items: center; align-content: center; padding-left: 24px; border-left: 1px solid var(--line); }
 .cardinfo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(32px, 5vw, 80px); padding: 56px 0 96px; border-top: 1px solid var(--line); }
 @media (max-width: 860px) { .cardinfo { grid-template-columns: minmax(0, 1fr); } }

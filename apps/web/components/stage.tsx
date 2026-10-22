@@ -320,7 +320,7 @@ function Bank({ venue, upto }: { venue: VenueLite; upto?: CycleEvent }) {
           );
         })}
       </div>
-      <p className="micro mt-16">题目来自 ANANKE 的题库。<a className="link" href="/exam">在备考室练习同类题 →</a></p>
+      <p className="micro mt-16">题目来自 ANANKE 的题库。</p>
     </div>
   );
 }
