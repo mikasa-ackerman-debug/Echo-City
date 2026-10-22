@@ -64,7 +64,7 @@ export default function Me() {
         <section className="chapter" style={{ maxWidth: 1100 }}>
           <div className="chapter__index"><span className="num">§A</span><span className="label">AGENTS</span><span className="label label--grey">智能体集群</span></div>
           <p className="body" style={{ maxWidth: 600 }}>配置你的智能体：选一个人格模板，填上模型和密钥。每个智能体有自己的决策风格。配置完成后，在图鉴页点击「启动轮回」。</p>
-          <div className="mt-24">
+          <div className="mt-24" style={{ gridColumn: "1 / -1" }}>
             <AgentConfigPanel />
           </div>
         </section>
