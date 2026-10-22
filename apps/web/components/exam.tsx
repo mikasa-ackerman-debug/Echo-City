@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DIMENSIONS, DIMENSION_IDS, KIND_ZH, type Dimension, type ExamineeDTO } from "@/lib/exam";
 
 const LO = 700, HI = 1700;
+const SHORT: Record<Dimension, string> = { logic: "逻辑", math: "数学", planning: "规划", memory: "记忆", instruction: "指令", strategy: "博弈" };
 const norm = (r: number) => Math.max(0, Math.min(1, (r - LO) / (HI - LO)));
 
 /** Hexagonal ability chart: hairlines only, one filled polygon. */
@@ -23,7 +24,7 @@ export function Radar({ abilities, compare, size = 280 }: { abilities: Record<Di
         const [x, y] = pt(i, 1.2);
         return (
           <text key={d} x={x} y={y} textAnchor={Math.abs(x - c) < 4 ? "middle" : x > c ? "start" : "end"} dominantBaseline="middle" className="radar__label">
-            {DIMENSIONS[d].name.slice(0, 4)}
+            {SHORT[d]}
             <tspan className="radar__num" dx={6}>{abilities[d].n ? abilities[d].r : "—"}</tspan>
           </text>
         );

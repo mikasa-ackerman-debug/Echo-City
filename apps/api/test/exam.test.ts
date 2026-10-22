@@ -122,9 +122,44 @@ describe("exam api", () => {
     expect(mine.json.map((x: any) => x.name).sort()).toEqual(["Hooky", "Pully"]);
   });
 
+  it("hosted mode: calls an OpenAI-compatible endpoint with the task, parses {answer}", async () => {
+    const seen: any[] = [];
+    const llm = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body) });
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ choices: [{ message: { content: '```json\n{"answer": "7"}\n```' } }] }));
+      });
+    });
+    await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
+    try {
+      const url = `http://127.0.0.1:${(llm.address() as AddressInfo).port}/v1`;
+      const ex = await api("POST", "/api/exam/examinees", { name: "Hosty", kind: "hosted", hosted: { baseUrl: url, model: "fake-1", apiKey: "sk-test" } }, token);
+      expect(ex.status).toBe(200);
+      expect(JSON.stringify(ex.json)).not.toContain("sk-test");
+      const s = await api("POST", "/api/exam/sessions", { examineeId: ex.json.examinee.id, size: 6 }, token);
+      let v: any;
+      for (let i = 0; i < 200; i++) {
+        v = (await api("GET", `/api/exam/sessions/${s.json.id}`)).json;
+        if (v.status === "done") break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(v.status).toBe("done");
+      expect(seen).toHaveLength(6);
+      expect(seen[0].url).toBe("/v1/chat/completions");
+      expect(seen[0].auth).toBe("Bearer sk-test");
+      expect(seen[0].body.model).toBe("fake-1");
+      expect(seen[0].body.messages[1].content).toContain("答案格式");
+      expect(v.attempts.every((a: any) => a.answer === "7")).toBe(true);
+    } finally {
+      llm.close();
+    }
+  });
+
   it("persists to exam.json", async () => {
     app.exam.flush();
     const again = createApp({ dataDir: dir, adminToken: "adm", secretKey: "exam-secret" });
-    expect(again.exam.db.examinees.length).toBe(5);
+    expect(again.exam.db.examinees.length).toBe(6);
   });
 });

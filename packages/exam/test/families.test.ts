@@ -15,7 +15,7 @@ describe("task library", () => {
           expect(a.task.prompt.length).toBeGreaterThan(20);
           const ref = reference(f.id, a.key);
           const g = grade(f.id, a.key, ref);
-          if (f.id !== "instruction.constraints") expect(g.score, `${f.id}@${level}/${seed}: ${g.detail}`).toBe(1);
+          expect(g.score, `${f.id}@${level}/${seed}: ${g.detail}`).toBe(1);
           // garbage never scores full marks
           expect(grade(f.id, a.key, "我不知道").correct).toBe(false);
           // the answer key must not be leaked in the prompt for exact-answer families

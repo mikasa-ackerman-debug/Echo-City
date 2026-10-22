@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/cycle", label: "本周" },
   { href: "/graveyard", label: "墓地" },
   { href: "/cards", label: "图鉴" },
+  { href: "/exam", label: "考场" },
   { href: "/me", label: "我的谱系" },
 ];
 
@@ -159,7 +160,7 @@ export function Footer() {
         </div>
         <div className="footer__col">
           <span className="label label--grey">玩家</span>
-          <Link href="/play">唤醒 Agent</Link><Link href="/me">我的谱系</Link><Link href="/practice">练习场</Link><Link href="/rankings">天梯</Link>
+          <Link href="/play">唤醒 Agent</Link><Link href="/exam">能力考场</Link><Link href="/me">我的谱系</Link><Link href="/practice">练习场</Link><Link href="/rankings">天梯</Link>
         </div>
         <div className="footer__col">
           <span className="label label--grey">档案</span>

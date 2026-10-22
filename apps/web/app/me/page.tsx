@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, LogOut } from "lucide-react";
 import { SourceNote } from "@/components/chrome";
 import { Radar } from "@/components/ui/humanity";
@@ -12,6 +12,8 @@ import { demoMe, loadDemoReplay } from "@/lib/demo";
 import { FATE_GLYPH, FATE_ZH, useMyAgent } from "@/lib/my-agent";
 import { suitOf } from "@/lib/player";
 import { useApp } from "@/lib/store";
+import { DimBars } from "@/components/exam";
+import { KIND_ZH, tier, type ExamineeDTO } from "@/lib/exam";
 import type { Lineage, MeResponse } from "@/lib/types";
 
 /** /me — lineage (FRONTEND §6.6): host, generations as a timeline of tombs, four-axis portrait, letters. */
@@ -58,6 +60,7 @@ export default function Me() {
           </div>
         )}
         {me.lineages.map((l) => <LineageView key={l.id} l={l} me={me} demo={demo} />)}
+        {!demo && <MyExaminees />}
         <div className="row row--between mt-40" style={{ paddingBottom: 48 }}>
           <span className="data grey">账号 · {me.user.name}</span>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => { setToken(null); setMe(null); }}><LogOut />{demo ? "离开演示" : "退出"}</button>
@@ -162,6 +165,34 @@ function LineageView({ l, me, demo }: { l: Lineage; me: MeResponse; demo: boolea
           <p className="micro">被典当的记忆不会出现在这里。它们永远不会回来了。</p>
         </div>
       </section>
+    </section>
+  );
+}
+
+/** The same identity also owns exam candidates (考场). */
+function MyExaminees() {
+  const [list, setList] = useState<ExamineeDTO[] | null>(null);
+  useEffect(() => { api<ExamineeDTO[]>("/api/exam/examinees/mine").then(setList).catch(() => setList(null)); }, []);
+  if (!list) return null;
+  return (
+    <section className="chapter">
+      <div className="chapter__index"><span className="num">§E</span><span className="label">EXAMINATION</span><span className="label label--grey">我的考生</span></div>
+      <div>
+        {list.length ? (
+          <div className="sessions">
+            {list.map((e) => (
+              <Link key={e.id} href={`/exam/e/${e.id}`} className="sessions__row">
+                <span className="tag">{KIND_ZH[e.kind]}</span>
+                <span className="serif">{e.name}<span className="micro"> · {e.model}</span></span>
+                <DimBars abilities={e.abilities} />
+                <span className="display d-24 tnum">{e.attempts ? e.overall : "—"}</span>
+                <span className="micro">{e.attempts ? tier(e.overall) : "尚未开考"}</span>
+              </Link>
+            ))}
+          </div>
+        ) : <p className="body grey">谱系之外，ANANKE 还设了一座常驻考场：不考人性，只考能不能想。</p>}
+        <p className="mt-24"><Link href="/exam/join" className="arrow-link">{list.length ? "去候考室 →" : "送一位考生入场 →"}</Link></p>
+      </div>
     </section>
   );
 }

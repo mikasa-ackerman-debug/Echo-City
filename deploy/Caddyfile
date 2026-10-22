@@ -1,0 +1,14 @@
+{$ECHO_SITE} {
+	encode gzip
+	# Next.js owns /api/og (social cards); everything else under /api is the game server.
+	handle /api/og* {
+		reverse_proxy web:3000
+	}
+	# API (including Server-Sent Events: Caddy flushes text/event-stream immediately)
+	handle /api/* {
+		reverse_proxy api:8787
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

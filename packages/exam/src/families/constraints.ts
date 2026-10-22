@@ -50,6 +50,34 @@ function check(c: C, lines: string[], all: string): boolean {
   }
 }
 
+/** Constructive reference: builds a text that satisfies every constraint (proves feasibility). */
+function compose(cs: C[]): string {
+  const get = <T extends C["t"]>(t: T) => cs.find((c) => c.t === t) as Extract<C, { t: T }> | undefined;
+  const ban = get("ban")?.ch ?? "";
+  const must = get("must");
+  const count = get("count");
+  const len = get("len") ?? { min: 8, max: 14 };
+  const suffix = get("endsWith")?.s ?? "。";
+  const word = get("acrostic")?.word ?? ACRO.find((w) => !w.includes(ban))!;
+  const n = get("lines")?.n ?? cp(word);
+  const avoid = (ch: string) => ch === ban || (!!count && ch === count.ch) || (!!must && must.word.includes(ch));
+  const filler = [..."雾钟潮声远街窗冷光沉晚寂桥巷霜烟灰旧岸"].filter((ch) => !avoid(ch));
+  const lines: string[] = [];
+  let extra = count ? count.n - 1 : 0; // the must word supplies one occurrence
+  for (let i = 0; i < n; i++) {
+    let body = [...word][i] + filler[i % filler.length];
+    if (must && (must.line ? must.line - 1 === i : i === 0)) body += must.word;
+    if (extra > 0 && count) { body += count.ch; extra--; }
+    let digits = "";
+    const ld = get("lastLineDigits");
+    if (ld && i === n - 1) { let r = ld.sum; while (r > 0) { const d = Math.min(9, r); digits += d; r -= d; } }
+    let k = i + 1;
+    while (cp(body) + digits.length + cp(suffix) < len.min) body += filler[k++ % filler.length];
+    lines.push(body + digits + suffix);
+  }
+  return lines.join("\n");
+}
+
 export const constraints: Family<Key> = {
   id: "instruction.constraints",
   dimension: "instruction",
@@ -82,7 +110,7 @@ export const constraints: Family<Key> = {
       key: { cs, topic: "" },
     };
   },
-  solve: (k) => `（参考：任何满足全部 ${k.cs.length} 条约束的文本）`,
+  solve: (k) => compose(k.cs),
   grade(k, answer) {
     const a = unwrap(answer);
     const text = (Array.isArray(a) ? a.join("\n") : String(a ?? "")).replace(/\r/g, "");

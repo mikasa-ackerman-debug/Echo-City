@@ -1,0 +1,44 @@
+# Echo City · 残响城 — one-command deploy.
+#   cp .env.example .env   # fill in the secrets
+#   docker compose up -d --build
+# Then open ECHO_PUBLIC_URL (default http://localhost:8080).
+
+services:
+  api:
+    build: { context: ., target: api }
+    restart: unless-stopped
+    environment:
+      ECHO_ADMIN_TOKEN: ${ECHO_ADMIN_TOKEN:?set ECHO_ADMIN_TOKEN in .env (32+ chars)}
+      ECHO_SECRET_KEY: ${ECHO_SECRET_KEY:?set ECHO_SECRET_KEY in .env (32+ chars)}
+      ECHO_CORS_ORIGIN: ${ECHO_PUBLIC_URL:-http://localhost:8080}
+      ECHO_MODE: ${ECHO_MODE:-weekly}
+      ECHO_AUTODEMO: ${ECHO_AUTODEMO:-1}
+    volumes:
+      - echo-data:/data
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    restart: unless-stopped
+    depends_on: [api]
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api, web]
+    environment:
+      # ":80" serves plain HTTP; a bare domain (e.g. echo.example.com) gets automatic HTTPS.
+      ECHO_SITE: ${ECHO_SITE:-:80}
+    ports:
+      - "${ECHO_HTTP_PORT:-8080}:80"
+      - "${ECHO_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  echo-data:
+  caddy-data:

@@ -45,7 +45,7 @@ export function pickLevel(ability: number, maxLevel: number, stats?: FamilyStats
 /** Update agent ability and task difficulty after one graded attempt (score in 0..1). */
 export function update(ability: Rating, difficulty: Rating, score: number): { ability: Rating; difficulty: Rating } {
   const e = expected(ability.r, difficulty.r);
-  const kA = Math.max(24, 96 / Math.sqrt(1 + ability.n));
+  const kA = Math.max(32, 200 / Math.sqrt(1 + ability.n));
   const kD = Math.max(8, 48 / Math.sqrt(1 + difficulty.n));
   return {
     ability: { r: ability.r + kA * (score - e), n: ability.n + 1 },
