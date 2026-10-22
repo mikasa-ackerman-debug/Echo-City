@@ -18,6 +18,7 @@ describe("task library", () => {
           expect(g.score, `${f.id}@${level}/${seed}: ${g.detail}`).toBe(1);
           // garbage never scores full marks
           expect(grade(f.id, a.key, "我不知道").correct).toBe(false);
+          for (const blank of ["", "  ", null, { answer: "" }]) expect(grade(f.id, a.key, blank).score).toBe(0);
           // the answer key must not be leaked in the prompt for exact-answer families
           if (["math.arith", "math.paths", "math.crt", "memory.ledger"].includes(f.id)) expect(a.task.prompt).not.toContain(`\n${String(ref)}\n`);
         }

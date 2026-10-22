@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { generate, reference } from "@echo/exam";
-import { verifySignature } from "@echo/protocol/signing";
+import { WebhookReplayGuard } from "@echo/protocol/signing";
 import { createApp } from "../src";
 
 const dir = mkdtempSync(join(tmpdir(), "echo-exam-"));
@@ -15,13 +15,17 @@ let hookBase = "";
 let hookSecret = "";
 let hookCalls = 0;
 let hookBad = 0;
+const guard = new WebhookReplayGuard();
+const hookBodies: any[] = [];
 // A webhook examinee that always answers "42".
 const hook = createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     hookCalls++;
-    const ok = verifySignature(body, hookSecret, String(req.headers["x-echo-signature"]), String(req.headers["x-echo-timestamp"]));
+    // The exact guard the official examples use: signature + unique request_id.
+    const ok = guard.accept(body, hookSecret, String(req.headers["x-echo-signature"]), String(req.headers["x-echo-timestamp"]));
+    hookBodies.push({ body: JSON.parse(body), proto: req.headers["x-echo-protocol"] });
     if (!ok) hookBad++;
     res.writeHead(ok ? 200 : 401, { "content-type": "application/json" }).end(JSON.stringify({ answer: "42" }));
   });
@@ -118,6 +122,9 @@ describe("exam api", () => {
     }
     expect(hookCalls).toBe(6);
     expect(hookBad).toBe(0);
+    expect(hookBodies[0].proto).toBe("echo-exam/1");
+    expect(hookBodies[0].body.deadline_ms).toBeGreaterThan(Date.now() - 60_000);
+    expect(new Set(hookBodies.map((h) => h.body.request_id)).size).toBe(6);
     const mine = await api("GET", "/api/exam/examinees/mine", undefined, token);
     expect(mine.json.map((x: any) => x.name).sort()).toEqual(["Hooky", "Pully"]);
   });
@@ -157,9 +164,39 @@ describe("exam api", () => {
     }
   });
 
+  it("bridge: a woken game Agent enters the exam with its own webhook and lineage", async () => {
+    const host = { name: "林晚", relation: "陪聊助手", memories: ["下雨天适合炖菜。", "明天见。", "猫叫阿七。"], belief: "温柔不是软弱。" };
+    const cyc = await fetch(base + "/api/cycles", { method: "POST", headers: { "content-type": "application/json", "x-admin-token": "adm" }, body: JSON.stringify({ mode: "fast" }) }).then((r) => r.json() as any);
+    const u = (await api("POST", "/api/users", { name: "谱系玩家" })).json.token;
+    const reg = await api("POST", "/api/agents", { cycleId: cyc.id, name: "Moth", mode: "webhook", webhook: { url: hookBase }, host }, u);
+    expect(reg.status).toBe(200);
+    const bt = (await api("POST", "/api/users", { name: "b" })).json.token;
+    const bot = await api("POST", "/api/agents", { cycleId: cyc.id, name: "Botty", mode: "bot", bot: { persona: "diplomat" }, host }, bt);
+    expect(bot.status).toBe(200);
+    expect((await api("POST", "/api/exam/examinees", { fromAgentId: bot.json.agent.id }, bt)).status).toBe(400);
+    // someone else cannot import my agent; bots cannot sit the exam
+    expect((await api("POST", "/api/exam/examinees", { fromAgentId: reg.json.agent.id }, token)).status).toBe(404);
+    const imp = await api("POST", "/api/exam/examinees", { fromAgentId: reg.json.agent.id }, u);
+    expect(imp.status).toBe(200);
+    expect(imp.json.examinee).toMatchObject({ kind: "webhook", agentId: reg.json.agent.id, lineageId: reg.json.agent.lineageId });
+    expect(imp.json.webhookSecret).toBeUndefined();
+    // idempotent
+    expect((await api("POST", "/api/exam/examinees", { fromAgentId: reg.json.agent.id }, u)).json.examinee.id).toBe(imp.json.examinee.id);
+    // the game's webhook secret signs exam calls
+    hookSecret = reg.json.webhookSecret;
+    const before = hookCalls;
+    const s = await api("POST", "/api/exam/sessions", { examineeId: imp.json.examinee.id, size: 6 }, u);
+    for (let i = 0; i < 200; i++) {
+      if ((await api("GET", `/api/exam/sessions/${s.json.id}`)).json.status === "done") break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(hookCalls - before).toBe(6);
+    expect(hookBad).toBe(0);
+  });
+
   it("persists to exam.json", async () => {
     app.exam.flush();
     const again = createApp({ dataDir: dir, adminToken: "adm", secretKey: "exam-secret" });
-    expect(again.exam.db.examinees.length).toBe(6);
+    expect(again.exam.db.examinees.length).toBe(7);
   });
 });

@@ -49,7 +49,7 @@ export function createApp(opts: AppOptions) {
     sealer: new Sealer(opts.secretKey),
     now: opts.now,
   });
-  const exam = new ExamService({ dataDir: opts.dataDir, sealer: new Sealer(opts.secretKey), secret: opts.secretKey, allowHttp: opts.allowInsecureWebhooks ?? false });
+  const exam = new ExamService({ dataDir: opts.dataDir, sealer: new Sealer(opts.secretKey), secret: opts.secretKey, allowHttp: opts.allowInsecureWebhooks ?? false, agent: (id) => store.agent(id) });
   const routes: Route[] = [];
   const route = (method: string, path: string, handler: Handler, auth?: Route["auth"]) => {
     const keys: string[] = [];

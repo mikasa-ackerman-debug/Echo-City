@@ -59,7 +59,13 @@ export function generate(familyId: string, level: number, seed: string): Instanc
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
+const isBlank = (a: unknown): boolean =>
+  a === null || a === undefined || (typeof a === "string" && !a.trim()) ||
+  (typeof a === "object" && !Array.isArray(a) && a !== null && "answer" in a && isBlank((a as { answer: unknown }).answer));
+
 export function grade(familyId: string, key: unknown, answer: unknown): GradeResult {
+  // A blank paper never earns partial credit (e.g. empty text trivially "avoids" a banned character).
+  if (isBlank(answer)) return { score: 0, correct: false, detail: "未作答", expected: "" };
   try {
     const r = family(familyId).grade(key, answer);
     return { ...r, score: Number.isFinite(r.score) ? Math.max(0, Math.min(1, r.score)) : 0 };

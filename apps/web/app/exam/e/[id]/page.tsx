@@ -18,7 +18,7 @@ export default function ExamineePage({ params }: { params: Promise<{ id: string 
     <div className="wrap">
       <header className="page-head">
         <div className="crumbs"><Link href="/exam">考场</Link> / 考生</div>
-        <div className="label label--grey mt-16">{KIND_ZH[e.kind]}{e.model ? ` · ${e.model}` : ""}{d.rank ? ` · 天梯第 ${d.rank}` : ""}</div>
+        <div className="label label--grey mt-16">{KIND_ZH[e.kind]}{e.model ? ` · ${e.model}` : ""}{d.rank ? ` · 天梯第 ${d.rank}` : ""}{e.agentId ? " · 来自轮回的 Agent" : ""}</div>
         <h1 className="display d-hero zh">{e.name}</h1>
       </header>
 

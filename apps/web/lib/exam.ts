@@ -8,6 +8,8 @@ export { DIMENSIONS, DIMENSION_IDS, type Dimension };
 
 export interface ExamineeDTO {
   id: string; name: string; kind: "pull" | "hosted" | "webhook" | "house"; model?: string;
+  /** Imported from a game Agent (轮回). */
+  agentId?: string; lineageId?: string;
   attempts: number; sessions: number; createdAt: string; lastAt?: string;
   overall: number; abilities: Record<Dimension, { r: number; n: number }>;
   best?: number; running?: string | null;

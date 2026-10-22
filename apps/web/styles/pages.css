@@ -275,3 +275,4 @@ code { font-family: var(--mono); font-size: .92em; color: var(--paper); }
 .radar__num { font: 400 11px var(--mono); fill: var(--grey); }
 .ember { color: var(--ember); }
 .select-all { user-select: all; }
+.sessions__row.is-focus { background: var(--hover-wash); }

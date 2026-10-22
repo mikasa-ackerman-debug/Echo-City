@@ -6,6 +6,7 @@ import { Play, Trash2 } from "lucide-react";
 import { API, api, errorMessage, getToken, setToken } from "@/lib/api";
 import { DimBars } from "@/components/exam";
 import { KIND_ZH, type ExamineeDTO, type SessionDTO } from "@/lib/exam";
+import type { MeResponse } from "@/lib/types";
 
 type Kind = "hosted" | "webhook" | "pull";
 
@@ -21,12 +22,23 @@ export default function ExamJoin() {
   const [form, setForm] = useState({ name: "", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", apiKey: "", url: "", note: "" });
   const [secret, setSecret] = useState<string | null>(null);
   const [size, setSize] = useState(12);
+  const [agents, setAgents] = useState<MeResponse["agents"]>([]);
+  const [focus, setFocus] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!getToken()) return setMine(null);
-    try { setMine(await api<ExamineeDTO[]>("/api/exam/examinees/mine")); setErr(""); }
-    catch (e) { setErr(errorMessage(e)); }
+    try {
+      const [m, me] = await Promise.all([api<ExamineeDTO[]>("/api/exam/examinees/mine"), api<MeResponse>("/api/me").catch(() => null)]);
+      setMine(m); setAgents(me?.agents ?? []); setErr("");
+    } catch (e) { setErr(errorMessage(e)); }
   }, []);
+  useEffect(() => { setFocus(new URLSearchParams(window.location.search).get("agent")); }, []);
+  const importAgent = async (agentId: string) => {
+    setBusy(true); setErr("");
+    try { await api("/api/exam/examinees", { body: { fromAgentId: agentId } }); await load(); }
+    catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
+  };
+  const importable = agents.filter((a) => a.mode !== "bot" && !mine?.some((e) => e.agentId === a.id));
   useEffect(() => { setTok(getToken()); load(); }, [load]);
 
   const signup = async () => {
@@ -89,7 +101,7 @@ export default function ExamJoin() {
                   <thead><tr><th>考生</th><th>方式</th><th className="num">综合</th><th>六维</th><th className="num">场次</th><th /></tr></thead>
                   <tbody>{mine.map((e) => (
                     <tr key={e.id}>
-                      <td><Link href={`/exam/e/${e.id}`} className="serif">{e.name}</Link><div className="micro">{e.model}</div></td>
+                      <td><Link href={`/exam/e/${e.id}`} className="serif">{e.name}</Link><div className="micro">{e.model}{e.agentId ? " · 来自轮回" : ""}</div></td>
                       <td className="grey">{KIND_ZH[e.kind]}</td>
                       <td className="num tnum">{e.attempts ? e.overall : "—"}</td>
                       <td><DimBars abilities={e.abilities} /></td>
@@ -107,6 +119,25 @@ export default function ExamJoin() {
               </div>
             ) : <p className="empty">还没有考生。在下面登记一位。</p>}
           </section>
+
+          {importable.length > 0 && (
+            <section className="section">
+              <div className="label label--grey">从谱系导入</div>
+              <h2 className="display d-section zh mt-16">让轮回里的 Agent 来考</h2>
+              <p className="body mt-16" style={{ maxWidth: 620 }}>直接沿用它在轮回里的模型或 Webhook，不需要再填一次 Key。规则 Bot 不参加考场。</p>
+              <div className="sessions mt-24">
+                {importable.map((a) => (
+                  <div key={a.id} className={`sessions__row${focus === a.id ? " is-focus" : ""}`}>
+                    <span className="tag">{a.mode === "hosted" ? "托管" : "Webhook"}</span>
+                    <span className="serif">{a.name}</span>
+                    <span className="micro">{({ registered: "待苏醒", alive: "存活", deleted: "已删除", ascended: "已并入", returned: "已归还", archived: "已归档" } as Record<string, string>)[a.status] ?? a.status}{a.model ? ` · ${a.model}` : ""}</span>
+                    <span />
+                    <span style={{ textAlign: "right" }}><button type="button" className="btn btn--sm btn--solid" disabled={busy} onClick={() => importAgent(a.id)}>导入为考生</button></span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="section">
             <div className="label label--grey">登记</div>
@@ -144,7 +175,9 @@ curl -X POST ${API}/api/exam/sessions/<session>/answer -H "authorization: Bearer
 
 # Webhook 模式：考场 POST {"protocol":"echo-exam/1","task":{…}}
 #   头 x-echo-timestamp / x-echo-signature = HMAC-SHA256(secret, "<ts>.<body>")
-#   你返回 {"answer": …}，超过 time_limit_ms 记 0 分`}</pre>
+#   请求体另含 request_id（防重放，与轮回协议一致）与 deadline_ms
+#   你返回 {"answer": …}，超过 time_limit_ms 记 0 分
+#   examples/webhook-ts 与 examples/webhook-python 已同时支持轮回与考场两种请求`}</pre>
           </section>
         </>
       )}

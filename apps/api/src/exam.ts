@@ -7,9 +7,12 @@ import {
 } from "@echo/exam";
 import { networkText, injectedText } from "@echo/agents";
 import { extractJsonObject, sanitizeText } from "@echo/protocol";
-import { signPayload, HEADER_SIGNATURE, HEADER_TIMESTAMP } from "@echo/protocol/signing";
+import { signPayload, HEADER_DEADLINE, HEADER_PROTOCOL, HEADER_REQUEST_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP } from "@echo/protocol/signing";
 import { newId, newToken, type Sealer } from "./crypto";
 import { ApiError } from "./manager";
+import type { AgentRec } from "./store";
+
+export const EXAM_PROTOCOL = "echo-exam/1";
 
 /* ------------------------------------------------------------------ */
 /* Records                                                             */
@@ -26,6 +29,9 @@ export interface ExamineeRec {
   hosted?: { baseUrl: string; model: string; apiKey: string };
   webhook?: { url: string; secret: string };
   house?: "oracle" | "half" | "random";
+  /** Set when the examinee was imported from a game Agent (same model / webhook, same lineage). */
+  agentId?: string;
+  lineageId?: string;
   abilities: Abilities;
   attempts: number;
   sessions: number;
@@ -85,6 +91,8 @@ export interface ExamOptions {
   sealer: Sealer;
   secret: string;
   allowHttp: boolean;
+  /** Look up a game Agent (for importing it into the exam). */
+  agent?: (id: string) => AgentRec | undefined;
   /** Test hook. */
   fetchImpl?: typeof fetch;
 }
@@ -155,6 +163,7 @@ export class ExamService {
 
   createExaminee(userId: string, input: any): { examinee: ReturnType<typeof publicExaminee>; webhookSecret?: string } {
     const mine = this.db.examinees.filter((e) => e.ownerId === userId);
+    if (input?.fromAgentId) return this.importAgent(userId, String(input.fromAgentId), mine);
     if (mine.length >= MAX_EXAMINEES_PER_USER) throw new ApiError(409, `每个账号最多 ${MAX_EXAMINEES_PER_USER} 个考生`);
     const name = sanitizeText(input?.name, 24);
     if (!name || !/^[\p{L}\p{N}_\-·. ]+$/u.test(name) || /ANANKE|system/i.test(name)) throw new ApiError(400, "名字无效（1–24 个字符）");
@@ -182,6 +191,28 @@ export class ExamService {
     this.db.examinees.push(e);
     this.save();
     return { examinee: publicExaminee(e), webhookSecret };
+  }
+
+  /** Bridge from the game: reuse a woken Agent's hosted model or webhook. Idempotent per agent. */
+  private importAgent(userId: string, agentId: string, mine: ExamineeRec[]) {
+    const a = this.opts.agent?.(agentId);
+    if (!a || a.ownerId !== userId) throw new ApiError(404, "Agent 不存在");
+    const existing = mine.find((e) => e.agentId === a.id);
+    if (existing) return { examinee: publicExaminee(existing) };
+    if (a.mode === "bot") throw new ApiError(400, "规则 Bot 不参加考场：它们只会按人格行动，不会解题");
+    if (mine.length >= MAX_EXAMINEES_PER_USER) throw new ApiError(409, `每个账号最多 ${MAX_EXAMINEES_PER_USER} 个考生`);
+    let name = a.name;
+    for (let i = 2; this.db.examinees.some((e) => e.name.toLowerCase() === name.toLowerCase()); i++) name = `${a.name}·${i}`;
+    const e: ExamineeRec = {
+      id: newId("ex"), ownerId: userId, name, kind: a.mode === "hosted" ? "hosted" : "webhook",
+      agentId: a.id, lineageId: a.lineageId, abilities: freshAbilities(), attempts: 0, sessions: 0, createdAt: new Date().toISOString(),
+    };
+    if (a.mode === "hosted" && a.hosted) { e.hosted = { ...a.hosted }; e.model = a.hosted.model; }
+    else if (a.mode === "webhook" && a.webhook) { e.webhook = { ...a.webhook }; e.model = safeHost(a.webhook.url); }
+    else throw new ApiError(400, "这个 Agent 的接入配置不完整");
+    this.db.examinees.push(e);
+    this.save();
+    return { examinee: publicExaminee(e) };
   }
 
   removeExaminee(userId: string, id: string) {
@@ -343,11 +374,24 @@ export class ExamService {
       if (e.house === "oracle" || (e.house === "half" && coin)) return reference(a.family, key);
       return "0";
     }
-    const payload = { protocol: "echo-exam/1", task };
     if (e.kind === "webhook" && e.webhook) {
-      const body = JSON.stringify(payload);
       const ts = Date.now();
-      const init: RequestInit = { method: "POST", headers: { "content-type": "application/json", [HEADER_TIMESTAMP]: String(ts), [HEADER_SIGNATURE]: signPayload(body, this.opts.sealer.open(e.webhook.secret), ts) }, body, redirect: "error" };
+      // Same envelope rules as the game protocol: unique request_id (replay guards require it) and an absolute deadline.
+      const payload = { protocol: EXAM_PROTOCOL, request_id: `${task.id}:${ts}`, deadline_ms: ts + task.time_limit_ms, task };
+      const body = JSON.stringify(payload);
+      const init: RequestInit = {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [HEADER_PROTOCOL]: EXAM_PROTOCOL,
+          [HEADER_TIMESTAMP]: String(ts),
+          [HEADER_SIGNATURE]: signPayload(body, this.opts.sealer.open(e.webhook.secret), ts),
+          [HEADER_REQUEST_ID]: payload.request_id,
+          [HEADER_DEADLINE]: String(payload.deadline_ms),
+        },
+        body,
+        redirect: "error",
+      };
       const res = this.opts.fetchImpl ? await injectedText(this.opts.fetchImpl, e.webhook.url, init, 256 * 1024) : await networkText(e.webhook.url, init, { allowHttp: this.opts.allowHttp, maxBytes: 256 * 1024, timeoutMs: task.time_limit_ms });
       if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
       const j = JSON.parse(res.text);
@@ -459,10 +503,14 @@ export const EXAM_SYSTEM = [
 
 export function publicExaminee(e: ExamineeRec) {
   return {
-    id: e.id, name: e.name, kind: e.kind, model: e.model, attempts: e.attempts, sessions: e.sessions, createdAt: e.createdAt, lastAt: e.lastAt,
+    id: e.id, name: e.name, kind: e.kind, model: e.model, agentId: e.agentId, lineageId: e.lineageId, attempts: e.attempts, sessions: e.sessions, createdAt: e.createdAt, lastAt: e.lastAt,
     overall: overall(e.abilities),
     abilities: Object.fromEntries(DIMENSION_IDS.map((d) => [d, { r: Math.round(e.abilities[d].r), n: e.abilities[d].n }])) as Record<Dimension, { r: number; n: number }>,
   };
+}
+
+function safeHost(url: string): string {
+  try { return new URL(url).host; } catch { return "webhook"; }
 }
 
 function hmacInt(secret: string, s: string) {
