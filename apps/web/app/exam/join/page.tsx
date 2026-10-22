@@ -38,7 +38,7 @@ export default function ExamJoin() {
     try { await api("/api/exam/examinees", { body: { fromAgentId: agentId } }); await load(); }
     catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
   };
-  const importable = agents.filter((a) => a.mode !== "bot" && !mine?.some((e) => e.agentId === a.id));
+  const importable = agents.filter((a) => (a.mode === "hosted" || a.mode === "webhook") && !mine?.some((e) => e.agentId === a.id));
   useEffect(() => { setTok(getToken()); load(); }, [load]);
 
   const signup = async () => {

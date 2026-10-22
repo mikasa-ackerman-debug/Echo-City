@@ -7,7 +7,8 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "examples/webhook-ts"
+    "examples/webhook-ts",
+    "examples/mcp-agent"
   ],
   "engines": {
     "node": ">=22.13"
@@ -19,7 +20,8 @@
     "sim": "tsx packages/runner/src/cli.ts",
     "api": "tsx apps/api/src/main.ts",
     "web": "npm run dev -w @echo/web",
-    "example:webhook": "tsx examples/webhook-ts/src/server.ts"
+    "example:webhook": "tsx examples/webhook-ts/src/server.ts",
+    "example:mcp": "tsx examples/mcp-agent/src/main.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

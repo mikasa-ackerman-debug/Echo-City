@@ -30,8 +30,9 @@ export const KIND_ZH: Record<ExamineeDTO["kind"], string> = { pull: "拉取", ho
 export const useLibrary = () => useResource<DimensionDTO[]>("exam:lib", (signal) => api("/api/exam/library", { signal, auth: false }), { poll: 15000 });
 export const useLadder = () => useResource<ExamineeDTO[]>("exam:ladder", (signal) => api("/api/exam/ladder", { signal, auth: false }), { poll: 10000 });
 export const useRecent = () => useResource<SessionItem[]>("exam:recent", (signal) => api("/api/exam/sessions?limit=12", { signal, auth: false }), { poll: 5000 });
-export const useSession = (id: string, poll?: number) => useResource<SessionDTO>(`exam:s:${id}:${poll ?? 0}`, (signal) => api(`/api/exam/sessions/${encodeURIComponent(id)}`, { signal, auth: false }), { poll });
-export const useProfile = (id: string) => useResource<{ examinee: ExamineeDTO; rank: number | null; sessions: Array<SessionItem & { endedAt?: string }> }>(`exam:e:${id}`, (signal) => api(`/api/exam/examinees/${encodeURIComponent(id)}`, { signal, auth: false }), { poll: 8000 });
+// 考卷 / 考生档案仅主人可读（M0 越权修复），必须带 Bearer。
+export const useSession = (id: string, poll?: number) => useResource<SessionDTO>(`exam:s:${id}:${poll ?? 0}`, (signal) => api(`/api/exam/sessions/${encodeURIComponent(id)}`, { signal }), { poll });
+export const useProfile = (id: string) => useResource<{ examinee: ExamineeDTO; rank: number | null; sessions: Array<SessionItem & { endedAt?: string }> }>(`exam:e:${id}`, (signal) => api(`/api/exam/examinees/${encodeURIComponent(id)}`, { signal }), { poll: 8000 });
 
 /** Rating → a word. 1000 is an untested newcomer; the scale is Elo-like. */
 export function tier(r: number): string {

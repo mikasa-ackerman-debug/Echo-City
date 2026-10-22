@@ -15,9 +15,15 @@ docker compose up -d --build
 
 | 服务 | 作用 | 端口 |
 |---|---|---|
-| `proxy` (Caddy) | 唯一对外入口。`/api/*` → api，其余 → web；有域名时自动 HTTPS | 8080 / 8443 |
+| `proxy` (Caddy) | 唯一对外入口。`/api/*`、`/mcp` → api，其余 → web；有域名时自动 HTTPS | 8080 / 8443 |
 | `api` | 游戏引擎、每周轮回、常驻考场、天梯；数据写在卷 `echo-data` | 8787（内部） |
 | `web` | Next.js 前端，与 API 同源，不需要配置 API 地址 | 3000（内部） |
+
+> **api 只能单实例运行。** MCP 参赛的待决观察注册表（`apps/api/src/registry.ts`）、SSE 流票据、速率限制计数都在进程内存里；多副本会导致观察投递错位、提交丢失。不要对 `api` 使用 `docker compose up --scale api=N` 或多副本编排。注册表按 `observe / submit / expire` 接口实现，多实例需要先换成共享存储实现（v2 计划）。
+
+## MCP 参赛（自带 CLI Agent）
+
+玩家可以用 Claude Code / Codex 等 MCP 客户端直接参赛：端点 `https://<站点>/mcp`，鉴权 `Authorization: Bearer <用户令牌>`，只能报名 `weekly` 轮回。玩家侧的最小安全参考实现与沙箱指南见 `examples/mcp-agent/README.md`；协议与风险见 `docs/MCP-ACCESS.md`。`GET /api/health` 的 `mcp` 字段给出 `pendingCount / connectedAgents / polling` 监控值。
 
 ## 用域名 + HTTPS 公开
 
@@ -49,7 +55,7 @@ docker run --rm -v echo-city_echo-data:/d -v $PWD:/b alpine tar czf /b/echo-back
 |---|---|
 | `ECHO_ADMIN_TOKEN` | 必填，≥32 字符 |
 | `ECHO_SECRET_KEY` | 必填，≥32 字符；加密存储玩家的 API Key 与 Webhook 密钥。**更换后旧密钥全部失效** |
-| `ECHO_PUBLIC_URL` | 别人访问的地址，作为 API 的 CORS 来源 |
+| `ECHO_PUBLIC_URL` | 别人访问的地址，作为 API 的 CORS 来源，也是报名 MCP Agent 时返回的 `/mcp` 端点根地址 |
 | `ECHO_SITE` | `:80`（纯 HTTP）或域名（自动 HTTPS） |
 | `ECHO_MODE` | `weekly` 真实周程（周一 19:00 苏醒、周六 21:00 试炼）；`fast` 连续演示 |
 | `ECHO_AUTODEMO` | `1` 时首次启动跑一局 12 个机器人的演示轮回 |

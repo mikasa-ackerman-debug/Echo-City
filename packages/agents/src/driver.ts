@@ -1,9 +1,19 @@
 import type { AgentResponse, Observation } from "@echo/protocol";
 
+/**
+ * runner 询价时附带的上下文（可选，旧驱动可忽略）。
+ * deadlineMs 是 runner 实际执行的超时（已含 per-agent 倍率），
+ * 而 obs.deadline_ms 仍是引擎设计值——二者在 MCP 模式下不同（见 docs/MCP-ACCESS.md FR-5）。
+ */
+export interface DecideContext {
+  deadlineMs: number;
+  timeout?: string;
+}
+
 /** Anything that can answer an observation. */
 export interface AgentDriver {
   readonly kind: string;
-  decide(obs: Observation, signal?: AbortSignal): Promise<AgentResponse | null>;
+  decide(obs: Observation, signal?: AbortSignal, ctx?: DecideContext): Promise<AgentResponse | null>;
 }
 
 /** Tiny deterministic PRNG for bots, seeded from the request id so runs are reproducible. */

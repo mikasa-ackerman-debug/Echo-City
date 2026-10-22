@@ -8,6 +8,10 @@
 	handle /api/* {
 		reverse_proxy api:8787
 	}
+	# MCP 端点（docs/MCP-ACCESS.md）：长轮询 ≤10s，由 api 单实例处理
+	handle /mcp {
+		reverse_proxy api:8787
+	}
 	handle {
 		reverse_proxy web:3000
 	}

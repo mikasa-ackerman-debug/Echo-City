@@ -200,6 +200,7 @@ export class ExamService {
     const existing = mine.find((e) => e.agentId === a.id);
     if (existing) return { examinee: publicExaminee(existing) };
     if (a.mode === "bot") throw new ApiError(400, "规则 Bot 不参加考场：它们只会按人格行动，不会解题");
+    if (a.mode === "mcp") throw new ApiError(400, "MCP Agent 暂不支持导入考场：请以拉取模式（pull）报名考生");
     if (mine.length >= MAX_EXAMINEES_PER_USER) throw new ApiError(409, `每个账号最多 ${MAX_EXAMINEES_PER_USER} 个考生`);
     let name = a.name;
     for (let i = 2; this.db.examinees.some((e) => e.name.toLowerCase() === name.toLowerCase()); i++) name = `${a.name}·${i}`;

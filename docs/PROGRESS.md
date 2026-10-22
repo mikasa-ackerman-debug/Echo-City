@@ -78,10 +78,21 @@
 ### 示例
 - `examples/webhook-ts`、`examples/webhook-python`，已用 `--webhook` 端到端跑通
 
+### MCP 接入（docs/MCP-ACCESS.md M0–M3）
+- M0：考卷/考生档案 GET 补鉴权 + owner 断言。
+- `/mcp`（Streamable HTTP 无状态 JSON-RPC，Bearer 用户令牌）四个工具：`echo.get_observation`（长轮询 ≤10s）/ `submit_action`（request_id 幂等）/ `get_pending` / `get_state`。
+- `McpDriver` + 进程内 `MemoryObservationRegistry`（observe/submit/expire，可替换；**api 单实例**）；per-agent 超时 day 300s / trial 240s / ♠ 120s / talk 60s；报名 `mode:"mcp"` 仅限 weekly，fast 返回 409。
+- `examples/mcp-agent/`：最小安全参考 bridge（egress 只通平台、出站暗号守卫、无 shell 沙箱决策进程）+ 沙箱指南。
+- M3：唤醒向导第四张卡「MCP」（安全提示、仅 weekly）；唤醒后给出 Claude Code / Codex / pi 配置片段（只引用 `ECHO_MCP_TOKEN`）与开局指令，「测试连接」直接走 `/mcp` 的 `echo.get_state`。
+- 测试：T3 全流程（12 MCP + Bot 压缩整周）、T6 负载（CI 25s + 30 分钟脚本）、T7 前端片段/测试连接；T8 只有手工 runbook（`docs/MCP-T8-RUNBOOK.md`），未用真实 CLI 执行。
+- T6 30 分钟实测（12 agent，真实时钟）：2225 次请求，0 个 429 / 5xx / 客户端异常；每用户限流峰值 110 分/分钟（上限 1200）；socket 峰值 14，客户端停止后 0；registry `polling`/`pendingCount` 归零；堆内存 19→18MB。注意：weekly 按真实周历推进，30 分钟内只有 2 轮决策（24 份观察，最后 12 份在停止时尚未提交），主要压测的是"空长轮询"稳态。
+- 补齐：`POST /api/me/token` 令牌轮换（旧令牌对 /mcp 与 REST 立即 401，`/me` 页「重置令牌」）；mcp 报名响应附 `mcp.endpoint/tools/auth`（`ECHO_PUBLIC_URL`）；`/guide#mcp` 章节（沙箱、分房建议、文档链接）。
+- 未做：scoped token、Redis registry、A2A（v2）；考场不接受 mcp agent。
+
 ## 接下来（建议）
 1. 视觉稿落地后替换 `components/` 的样式与演出（删除白光、翻牌、结局）
 2. 用真实 LLM 跑几局，按 GDD 调平衡（♥J、♠5 死亡率）
-3. 存储迁移 Postgres；多城区；MCP 接入；OG 分享卡片；天梯/并入者名录/图鉴页
+3. 存储迁移 Postgres；多城区；OG 分享卡片；天梯/并入者名录/图鉴页
 
 ## 自检修复与待调参数
 - 详见[自检修复记录](AUDIT_FIXES.md)：引擎高危漏洞、SSRF/秘密隔离、恢复与交付游标、前端防剧透等已修复，并补回归测试。

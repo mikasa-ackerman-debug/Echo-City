@@ -91,7 +91,7 @@ describe("exam api", () => {
       if (n.json.done) { expect(n.json.session.status).toBe("done"); break; }
       expect(n.json.task.seed).toBe("hidden");
       // the public session view must not reveal the expected answer before grading
-      const view = await api("GET", `/api/exam/sessions/${s.json.id}`);
+      const view = await api("GET", `/api/exam/sessions/${s.json.id}`, undefined, token);
       expect(view.json.attempts[n.json.index].expected).toBeUndefined();
       const r = await api("POST", `/api/exam/sessions/${s.json.id}/answer`, { task_id: n.json.task.id, answer: "0" }, token);
       expect(r.status).toBe(200);
@@ -101,9 +101,15 @@ describe("exam api", () => {
       expect((await api("POST", `/api/exam/sessions/${s.json.id}/answer`, { task_id: n.json.task.id, answer: "0" }, token)).status).toBe(409);
     }
     expect(answered).toBe(6);
-    const prof = await api("GET", `/api/exam/examinees/${ex.json.examinee.id}`);
+    const prof = await api("GET", `/api/exam/examinees/${ex.json.examinee.id}`, undefined, token);
     expect(prof.json.examinee.attempts).toBe(6);
     expect(prof.json.examinee.overall).toBeLessThan(1000);
+    // M0 越权回归：考卷与考生档案需要登录，且只有主人可读（非本人 404，不暴露存在性）
+    expect((await api("GET", `/api/exam/sessions/${s.json.id}`)).status).toBe(401);
+    expect((await api("GET", `/api/exam/sessions/${s.json.id}`, undefined, other)).status).toBe(404);
+    expect((await api("GET", `/api/exam/examinees/${ex.json.examinee.id}`)).status).toBe(401);
+    expect((await api("GET", `/api/exam/examinees/${ex.json.examinee.id}`, undefined, other)).status).toBe(404);
+    expect((await api("GET", "/api/exam/sessions/ses-nope", undefined, token)).status).toBe(404);
     const lib = await api("GET", "/api/exam/library");
     expect(lib.json.flatMap((d: any) => d.families).reduce((x: number, f: any) => x + f.attempts, 0)).toBe(6);
   });
@@ -113,7 +119,7 @@ describe("exam api", () => {
     hookSecret = ex.json.webhookSecret;
     const s = await api("POST", "/api/exam/sessions", { examineeId: ex.json.examinee.id, size: 6 }, token);
     for (let i = 0; i < 200; i++) {
-      const v = await api("GET", `/api/exam/sessions/${s.json.id}`);
+      const v = await api("GET", `/api/exam/sessions/${s.json.id}`, undefined, token);
       if (v.json.status === "done") {
         expect(v.json.attempts.every((a: any) => typeof a.score === "number")).toBe(true);
         break;
@@ -148,7 +154,7 @@ describe("exam api", () => {
       const s = await api("POST", "/api/exam/sessions", { examineeId: ex.json.examinee.id, size: 6 }, token);
       let v: any;
       for (let i = 0; i < 200; i++) {
-        v = (await api("GET", `/api/exam/sessions/${s.json.id}`)).json;
+        v = (await api("GET", `/api/exam/sessions/${s.json.id}`, undefined, token)).json;
         if (v.status === "done") break;
         await new Promise((r) => setTimeout(r, 25));
       }
@@ -187,7 +193,7 @@ describe("exam api", () => {
     const before = hookCalls;
     const s = await api("POST", "/api/exam/sessions", { examineeId: imp.json.examinee.id, size: 6 }, u);
     for (let i = 0; i < 200; i++) {
-      if ((await api("GET", `/api/exam/sessions/${s.json.id}`)).json.status === "done") break;
+      if ((await api("GET", `/api/exam/sessions/${s.json.id}`, undefined, u)).json.status === "done") break;
       await new Promise((r) => setTimeout(r, 25));
     }
     expect(hookCalls - before).toBe(6);
