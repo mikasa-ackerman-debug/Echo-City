@@ -16,3 +16,4 @@ logs/
 .turbo/
 __pycache__/
 *.pyc
+.vercel
