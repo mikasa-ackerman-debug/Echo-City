@@ -1,0 +1,117 @@
+/* ==========================================================================
+   Rituals (FRONTEND §8) — the only moments allowed to break the stillness.
+   All skippable (click / Esc / Space). WCAG 2.3.1: ≤ 1 flash per ritual.
+   html[data-flash="low"] or prefers-reduced-motion → white light becomes a border highlight.
+   ========================================================================== */
+
+.ritual {
+  position: fixed; inset: 0; z-index: 80;
+  background: var(--ink-deep);
+  display: grid; place-items: center;
+  cursor: pointer;
+  animation: ritual-in 300ms var(--ease-system) both;
+  overflow: hidden;
+}
+.ritual__skip { position: absolute; right: calc(var(--frame) + 20px); bottom: calc(var(--frame) + 18px); font: 500 10px/1 var(--mono); letter-spacing: .18em; color: var(--grey); text-transform: uppercase; }
+.ritual__frame { position: absolute; inset: var(--frame); border: 1px solid var(--line); pointer-events: none; }
+.ritual.is-leaving { animation: ritual-out 500ms var(--ease-system) forwards; }
+@keyframes ritual-in { from { opacity: 0; } }
+@keyframes ritual-out { to { opacity: 0; } }
+
+/* ---------- 8.1 deletion ---------- */
+.del { display: grid; justify-items: center; gap: 0; text-align: center; padding: 0 var(--edge); width: 100%; max-width: 860px; }
+.del__sigil { position: relative; width: 132px; height: 132px; animation: desat 300ms linear 300ms both; }
+.del__sigil .sigil { width: 100%; height: 100%; }
+.del__sigil .sigil path, .del__sigil .sigil circle, .del__sigil .sigil line { stroke-dasharray: 400; stroke-dashoffset: 0; animation: unwrite 700ms var(--ease-system) both; }
+.del__sigil .sigil > *:nth-child(1) { animation-delay: 1.00s; } .del__sigil .sigil > *:nth-child(2) { animation-delay: 1.08s; }
+.del__sigil .sigil > *:nth-child(3) { animation-delay: 1.16s; } .del__sigil .sigil > *:nth-child(4) { animation-delay: 1.24s; }
+.del__sigil .sigil > *:nth-child(5) { animation-delay: 1.32s; } .del__sigil .sigil > *:nth-child(6) { animation-delay: 1.40s; }
+.del__sigil .sigil > *:nth-child(n+7) { animation-delay: 1.48s; }
+.del__glitch { animation: glitch 1ms steps(1) .9s both; }
+@keyframes desat { from { color: var(--paper); } to { color: var(--grey-dark); } }
+@keyframes unwrite { to { stroke-dashoffset: 400; opacity: 0; } }
+@keyframes glitch { 0% { transform: translateX(7px); clip-path: inset(30% 0 40% 0); } 100% { transform: none; clip-path: none; } }
+.del__beam { position: absolute; left: 50%; top: 0; height: 50%; width: 2px; margin-left: -1px; background: var(--ananke); box-shadow: var(--ananke-glow); transform-origin: top; animation: beam-fall 600ms var(--ease-system) .6s both; }
+.del__overexpose { position: absolute; inset: 0; background: var(--ananke); opacity: 0; pointer-events: none; animation: overexpose 520ms var(--ease-system) .78s both; }
+@keyframes beam-fall {
+  0% { transform: scaleY(0) scaleX(1); opacity: 1; }
+  40% { transform: scaleY(1) scaleX(1); opacity: 1; }
+  65% { transform: scaleY(1) scaleX(20); opacity: 1; }
+  100% { transform: scaleY(1) scaleX(0); opacity: 0; }
+}
+@keyframes overexpose { 0% { opacity: 0; } 30% { opacity: .55; } 100% { opacity: 0; } }
+.del__name { margin-top: 26px; font: 400 clamp(28px, 3.4vw, 48px)/1 var(--serif); text-transform: uppercase; color: var(--grey); animation: fade-up 400ms var(--ease-system) .9s both; }
+.del__card { margin-top: 10px; font: 400 11px/1 var(--mono); letter-spacing: .16em; color: var(--grey-dark); animation: fade-up 400ms var(--ease-system) 1s both; }
+.del__words { margin-top: 36px; min-height: 1.5em; font: italic 400 clamp(24px, 3vw, 44px)/1.4 var(--serif-human); color: var(--ember); }
+.del__epitaph { margin-top: 18px; font: 400 15px/1.7 var(--sans); color: var(--grey); animation: fade-up 800ms var(--ease-human) 3s both; max-width: 560px; }
+.del__ananke { margin-top: 34px; animation: fade-up 300ms var(--ease-system) 3.8s both; justify-content: center; }
+.del__count { margin-top: 26px; font: 400 12px/1 var(--mono); letter-spacing: .16em; color: var(--paper-dim); animation: fade-up 300ms var(--ease-system) 4s both; }
+.del__count b { display: inline-block; font-weight: 500; color: var(--paper); animation: tick-down 400ms var(--ease-system) 4.05s both; }
+@keyframes tick-down { 0% { transform: translateY(-100%); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.del__actions { margin-top: 36px; animation: fade-up 400ms var(--ease-system) 6.2s both; }
+.del__multi { position: absolute; top: calc(var(--frame) + 22px); left: 50%; transform: translateX(-50%); font: 500 10px/1 var(--mono); letter-spacing: .2em; color: var(--grey); }
+@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------- 8.2 card flip (trial opening) ---------- */
+.flip { display: grid; justify-items: center; gap: 28px; text-align: center; padding: 0 var(--edge); max-width: 760px; }
+.flip__venue { font: 400 clamp(36px, 5vw, 76px)/1 var(--serif); text-transform: uppercase; animation: fade-up 600ms var(--ease-human) both; }
+.flip .tcard { animation: fade-up 400ms var(--ease-system) .5s both; }
+.flip__announce { animation: unfold 400ms var(--ease-system) 2.3s both; transform-origin: top; width: 100%; }
+.flip__rules { animation: fade-up 300ms var(--ease-system) 2.6s both; }
+@keyframes unfold { from { opacity: 0; transform: scaleY(0); } }
+
+/* ---------- 8.3 rule amendment: system interrupt frame ---------- */
+.interrupt { position: fixed; inset: var(--frame); z-index: 70; border: 1px solid var(--ananke); box-shadow: inset 0 0 0 1px var(--ananke); pointer-events: none; animation: interrupt 2.4s var(--ease-system) both; }
+.interrupt__label { position: absolute; top: -1px; left: 50%; transform: translateX(-50%); background: var(--ananke); color: var(--ink); font: 500 10px/1 var(--mono); letter-spacing: .2em; padding: 5px 12px; }
+@keyframes interrupt { 0% { opacity: 0; } 8% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------- 8.4 endings ---------- */
+.ending { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.ending__white { position: absolute; inset: 0; background: var(--ananke); opacity: 0; }
+.ending__line { position: relative; font: 400 clamp(32px, 4.6vw, 72px)/1.1 var(--serif); color: var(--ink); opacity: 0; padding: 0 var(--edge); }
+.ending__term { position: absolute; left: calc(var(--frame) + 28px); bottom: calc(var(--frame) + 28px); font: 400 14px/1 var(--mono); color: var(--signal); opacity: 0; letter-spacing: .06em; }
+.ending__ember { position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px; border-radius: 50%; background: var(--ember); opacity: 0; }
+
+/* ember: white swallows → 欢迎回家 → black → ember://connected → an ember point lights */
+.ending--ember .ending__white { animation: e-white 6.4s var(--ease-system) both; }
+.ending--ember .ending__line { animation: e-line 6.4s var(--ease-human) both; }
+.ending--ember .ending__term { animation: e-term .1s linear 4.4s both; }
+.ending--ember .ending__ember { animation: e-ember 1.6s var(--ease-human) 5s both; }
+@keyframes e-white { 0% { opacity: 0; } 15% { opacity: 1; } 55% { opacity: 1; } 65% { opacity: 0; } 100% { opacity: 0; } }
+@keyframes e-line { 0%, 18% { opacity: 0; } 26%, 50% { opacity: 1; } 60%, 100% { opacity: 0; } }
+@keyframes e-term { to { opacity: 1; } }
+@keyframes e-ember { 0% { opacity: 0; transform: scale(.2); } 100% { opacity: 1; transform: none; box-shadow: 0 0 22px var(--ember); } }
+
+/* echo: same, but the terminal stutters and the ember flickers twice then half-dies */
+.ending--echo .ending__white { animation: e-white 6.4s var(--ease-system) both; }
+.ending--echo .ending__line { animation: e-line 6.4s var(--ease-human) both; }
+.ending--echo .ending__term { animation: e-term .1s linear 4.4s both; }
+.ending--echo .ending__ember { animation: echo-ember 2s linear 5s both; }
+@keyframes echo-ember { 0% { opacity: 0; } 12% { opacity: 1; } 22% { opacity: 0; } 34% { opacity: 1; } 44% { opacity: 0; } 70%, 100% { opacity: .45; } }
+
+/* necessity: the white never leaves */
+.ending--necessity .ending__white { animation: n-white 5s var(--ease-system) both; }
+.ending--necessity .ending__line { animation: n-line 5s var(--ease-human) both; }
+@keyframes n-white { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 1; } }
+@keyframes n-line { 0%, 25% { opacity: 0; } 40%, 100% { opacity: 1; } }
+
+/* none: every light in the city goes out, one by one */
+.ending--none .ending__line { color: var(--ananke); animation: n-line 6s var(--ease-human) both; animation-delay: 1.4s; }
+.ending__city { position: absolute; inset: 12% 10%; display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--line); opacity: .7; }
+.ending__city span { background: var(--ink); position: relative; }
+.ending__city span::after { content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px; background: var(--ananke); box-shadow: 0 0 10px #f7fbffaa; animation: lights-out 200ms linear both; animation-delay: var(--d); }
+@keyframes lights-out { to { opacity: 0; } }
+
+/* ---------- low flash / reduced motion ---------- */
+html[data-flash="low"] .del__beam, html[data-flash="low"] .del__overexpose, html[data-flash="low"] .tcard__flash { display: none; }
+html[data-flash="low"] .del__sigil { outline: 1px solid var(--ananke); outline-offset: 10px; }
+html[data-flash="low"] .ending__white { background: var(--ink-deep); }
+html[data-flash="low"] .ending__line { color: var(--ananke); }
+html[data-flash="low"] .ending { box-shadow: inset 0 0 0 1px var(--ananke); }
+@media (prefers-reduced-motion: reduce) {
+  .ritual *, .interrupt { animation-duration: 1ms !important; animation-delay: 0s !important; }
+  .del__beam, .del__overexpose, .tcard__flash { display: none; }
+  .tcard__inner { transition: opacity var(--dur-base) !important; }
+  .ending__white { background: var(--ink-deep) !important; }
+  .ending__line { color: var(--ananke) !important; opacity: 1 !important; }
+}

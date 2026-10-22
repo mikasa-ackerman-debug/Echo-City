@@ -1,5 +1,10 @@
-/* Design tokens — FRONTEND.md §4.5「冷光编年」. Visual design may override these values; components only consume variables. */
+/* ==========================================================================
+   Design tokens — FRONTEND.md §4.5「冷光编年」
+   一本由 ANANKE 编写、却被人类偷偷批注过的编年史。
+   Values are canonical: components consume variables only, never raw colors.
+   ========================================================================== */
 :root {
+  /* ink & paper */
   --ink-deep: #050608;
   --ink: #0a0b0d;
   --ink-raised: #111317;
@@ -10,28 +15,90 @@
   --grey: #8c9096;
   --grey-dark: #4f535a;
 
+  /* signals — the only colours allowed on the site */
   --ananke: #f7fbff;
   --ananke-glow: 0 0 24px #f7fbffaa, 0 0 80px #cfe3ff55;
   --ember: #ff6a2b;
   --signal: #7dffb0;
   --alert: #ff3b3b;
 
+  /* suits (desaturated so it never becomes a card-game UI) */
   --suit-diamond: #9fb7d6;
   --suit-heart: #c98b8b;
   --suit-club: #9fbf9b;
   --suit-spade: #c4c4be;
 
+  /* humanity residue — only after the cycle ends (§4.1) */
+  --humanity-0: #4f535a;
+  --humanity-30: #8c9096;
+  --humanity-60: #ffb38a;
+  --humanity-100: #ff6a2b;
+
+  /* type */
   --serif: "Instrument Serif", "Noto Serif SC", "Songti SC", serif;
   --mono: "IBM Plex Mono", "Sarasa Mono SC", "PingFang SC", monospace;
   --sans: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* human handwriting: Chinese italics fall back to Kaiti (§4.2) */
+  --serif-human: "Instrument Serif", "Kaiti SC", "STKaiti", "KaiTi", "Noto Serif SC", serif;
   --display-page: clamp(54px, 7.6vw, 116px);
   --display-hero: clamp(44px, 5vw, 82px);
   --display-section: clamp(36px, 4.4vw, 60px);
+  --text-body-lg: 16px;
+  --text-body: 15px;
+  --text-data: 13px;
+  --text-label: 12px;
+  --text-micro: 10px;
 
+  /* layout */
   --content-max: 1440px;
   --edge: clamp(20px, 5vw, 84px);
   --frame: 10px;
 
+  /* motion */
   --ease-system: cubic-bezier(.2, 0, 0, 1);
   --ease-human: cubic-bezier(.4, 0, .2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 600ms;
+  --dur-ritual: 4000ms;
+
+  --hover-wash: rgba(238, 240, 238, .035);
+  color-scheme: dark;
+}
+
+/* ---------------- reset (Arena402 §2.3) ---------------- */
+*, *::before, *::after { box-sizing: border-box; border-radius: 0; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { margin: 0; background: var(--ink-deep); color: var(--paper); }
+body {
+  font: 400 14px/1.6 var(--mono);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+h1, h2, h3, h4, p, figure, blockquote, ol, ul, dl, dd { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+img, svg, canvas { display: block; max-width: 100%; }
+a { color: inherit; text-decoration: none; }
+button, input, textarea, select { font: inherit; color: inherit; background: none; border: 0; margin: 0; }
+button { cursor: pointer; padding: 0; }
+button:disabled { cursor: not-allowed; }
+table { border-collapse: collapse; }
+::selection { background: var(--paper); color: var(--ink); }
+:focus-visible { outline: 1px solid var(--ananke); outline-offset: 3px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); }
+
+/* ---------------- core semantic utilities ---------------- */
+.label {
+  font: 500 12px/1.4 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+.human-ink { /* 人类的笔迹：遗言、低语、记忆 */
+  font-family: var(--serif-human);
+  font-style: italic;
+  color: var(--ember);
 }

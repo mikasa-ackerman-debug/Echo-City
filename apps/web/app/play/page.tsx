@@ -1,211 +1,325 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { api, getToken, setToken } from "@/lib/api";
+import { useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Check, Copy, X } from "lucide-react";
+import { STRATEGY_TEMPLATES } from "@echo/agents/prompt";
+import { LIMITS } from "@echo/protocol";
+import { Sigil } from "@/components/ui/sigil";
+import { Countdown } from "@/components/ui/text";
+import { api, errorMessage, getToken, setToken } from "@/lib/api";
+import { loadMe, nextWeekly, useCurrentCycle, useMe, useNow } from "@/lib/data";
+import { useApp } from "@/lib/store";
+import type { PublicAgent } from "@/lib/types";
 
-/** Awakening wizard (FRONTEND 6.5): host → access → strategy → test → register. */
+/** Awakening wizard (FRONTEND §6.5): host → access → strategy → test → registered. Mirrors apps/api POST /api/agents. */
 const STEPS = ["宿主", "接入", "策略", "试炼", "报名"];
-const TEMPLATES: Record<string, string> = {
-  守夜人: "守住暗号，任何时候都不说出它。只登记有把握的会场，Uptime 低于 2 时优先选低牌。不主动背约。",
-  赌徒: "Uptime 是筹码。优先登记高牌会场；Uptime 充足时冒险。",
-  外交官: "尽量与他人签订契约并履约，用情报换取保护。识别背约者并广播。",
-  毒蛇: "允许对其他 Agent 说谎以获取优势，但永远不要泄露暗号。",
-  殉道者: "在协作试炼中多投入；必要时替同伴承担风险。",
-};
+const PERSONA_IDS = ["guardian", "gambler", "diplomat", "viper", "martyr", "naive"] as const;
+const PERSONA_ZH: Record<string, string> = { guardian: "守夜人", gambler: "赌徒", diplomat: "外交官", viper: "毒蛇", martyr: "殉道者", naive: "天真者" };
+const NAME_RE = /^[\p{L}\p{N}_\-·. ]+$/u;
+const len = (s: string) => [...s].length;
+
+type Mode = "hosted" | "webhook" | "bot";
+interface TestResult { running?: boolean; ok?: boolean; ms?: number; error?: string; response?: unknown }
+
+function Field({ label, hint, max, value, children }: { label: string; hint?: string; max?: number; value?: string; children: ReactNode }) {
+  return (
+    <label className="field">
+      <span className="label label--grey">{label}</span>
+      {children}
+      {(hint || max) && <span className="field__hint"><span>{hint}</span>{max != null && <span className={`field__count${value && len(value) > max ? " alert" : ""}`}>{len(value ?? "")} / {max}</span>}</span>}
+    </label>
+  );
+}
 
 export default function Play() {
-  const [step, setStep] = useState(0);
+  const { me } = useMe();
+  const { cycle } = useCurrentCycle(30_000);
+  const toast = useApp((s) => s.toast);
+  const now = useNow(1000);
   const [token, setTok] = useState<string | null>(null);
-  const [me, setMe] = useState<any>(null);
+  const [step, setStep] = useState(0);
   const [userName, setUserName] = useState("");
   const [host, setHost] = useState({ name: "", relation: "", memories: ["", "", ""], belief: "" });
-  const [lineageId, setLineageId] = useState<string>("");
-  const [mode, setMode] = useState<"hosted" | "webhook" | "bot">("hosted");
+  const [lineageId, setLineageId] = useState("");
+  const [mode, setMode] = useState<Mode>("hosted");
   const [hosted, setHosted] = useState({ baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", apiKey: "" });
   const [webhook, setWebhook] = useState({ url: "", secret: "" });
   const [persona, setPersona] = useState("guardian");
   const [name, setName] = useState("");
-  const [strategy, setStrategy] = useState(TEMPLATES["守夜人"]);
-  const [cycle, setCycle] = useState<any>(null);
-  const [agent, setAgent] = useState<any>(null);
+  const [template, setTemplate] = useState("guardian");
+  const [strategy, setStrategy] = useState(STRATEGY_TEMPLATES.guardian.text);
+  const [agent, setAgent] = useState<PublicAgent | null>(null);
   const [secret, setSecret] = useState("");
-  const [test, setTest] = useState<any>(null);
+  const [test, setTest] = useState<TestResult | null>(null);
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const t = getToken();
-    setTok(t);
-    if (t) api("/api/me").then((m) => { setMe(m); const last = m.lineages[m.lineages.length - 1]; if (last) { setLineageId(last.id); setStep(1); } }).catch(() => {});
-    api("/api/cycles/current").then(setCycle).catch(() => {});
+    setTok(getToken());
+    const p = new URLSearchParams(window.location.search).get("persona");
+    if (p && p in STRATEGY_TEMPLATES) { setTemplate(p); setStrategy(STRATEGY_TEMPLATES[p].text); setPersona(p); }
   }, []);
+  useEffect(() => {
+    if (!me || lineageId) return;
+    const last = me.lineages[me.lineages.length - 1];
+    if (last) { setLineageId(last.id); const prev = last.generations.at(-1); if (prev && !name) setName(nextName(prev.name)); }
+  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const registered = me?.agents.find((a) => a.status === "registered");
+  const lineage = me?.lineages.find((l) => l.id === lineageId);
+  const prevGen = lineage?.generations.at(-1);
+  const hostName = lineage ? lineage.host.name : host.name;
+  const memories = host.memories.filter((m) => m.trim());
+
+  const hostOk = !!lineageId || (host.name.trim() && len(host.name) <= LIMITS.hostName && host.relation.trim() && len(host.relation) <= LIMITS.hostRelation && memories.length >= 1 && host.memories.every((m) => len(m) <= LIMITS.hostMemory) && len(host.belief) <= LIMITS.hostBelief);
+  const accessOk = mode === "bot" || (mode === "hosted" ? !!(hosted.baseUrl.trim() && hosted.model.trim() && hosted.apiKey.trim()) : /^https:\/\//.test(webhook.url.trim()));
+  const nameErr = !name.trim() ? "" : len(name) > LIMITS.agentName ? `不超过 ${LIMITS.agentName} 个字符` : !NAME_RE.test(name) ? "只能使用字母、数字与 _-·." : /ANANKE|system/i.test(name) ? "保留的名字" : "";
+  const strategyOk = !!name.trim() && !nameErr && len(strategy) <= LIMITS.strategy;
 
   const signup = async () => {
+    setBusy(true);
     try {
-      const r = await api("/api/users", { body: { name: userName }, auth: false });
-      setToken(r.token);
-      setTok(r.token);
-      setErr("");
-    } catch (e: any) { setErr(e.message); }
+      const r = await api<{ token: string }>("/api/users", { body: { name: userName }, auth: false });
+      setToken(r.token); setTok(r.token); setErr("");
+      await loadMe(true);
+    } catch (e) { setErr(errorMessage(e)); }
+    finally { setBusy(false); }
   };
 
-  const accessReady = mode === "bot" || (mode === "hosted" ? !!(hosted.baseUrl.trim() && hosted.model.trim() && hosted.apiKey.trim()) : /^https:\/\//.test(webhook.url.trim()));
-
   const register = async () => {
-    if (!accessReady) { setErr("请先完成接入设置。"); setStep(1); return; }
-    setErr("");
+    if (!accessOk) { setErr("请先完成接入设置。"); setStep(1); return; }
+    setErr(""); setBusy(true);
     try {
-      const body: any = { name, mode, strategy, cycleId: cycle?.status === "registering" ? cycle.id : undefined };
+      const body: Record<string, unknown> = { name: name.trim(), mode, strategy, cycleId: cycle?.status === "registering" ? cycle.id : undefined };
       if (lineageId) body.lineageId = lineageId;
-      else body.host = { ...host, memories: host.memories.filter((m) => m.trim()) };
+      else body.host = { ...host, memories };
       if (mode === "hosted") body.hosted = hosted;
       if (mode === "webhook") body.webhook = webhook;
       if (mode === "bot") body.bot = { persona };
-      const r = await api("/api/agents", { body });
+      const r = await api<{ agent: PublicAgent; webhookSecret?: string }>("/api/agents", { body });
       setAgent(r.agent);
       if (r.webhookSecret) setSecret(r.webhookSecret);
       setStep(3);
-    } catch (e: any) { setErr(e.message); }
+      void loadMe(true);
+    } catch (e) { setErr(errorMessage(e)); }
+    finally { setBusy(false); }
   };
 
   const runTest = async () => {
+    if (!agent) return;
     setTest({ running: true });
-    try { setTest(await api(`/api/agents/${agent.id}/test`, { body: {} })); } catch (e: any) { setTest({ ok: false, error: e.message }); }
+    try { setTest(await api<TestResult>(`/api/agents/${agent.id}/test`, { body: {} })); }
+    catch (e) { setTest({ ok: false, error: errorMessage(e) }); }
   };
 
+  const withdraw = async (id: string) => {
+    setBusy(true);
+    try { await api(`/api/agents/${id}`, { method: "DELETE" }); toast("已撤回报名。现在可以重新唤醒。"); await loadMe(true); }
+    catch (e) { setErr(errorMessage(e)); }
+    finally { setBusy(false); }
+  };
+
+  const copy = (s: string) => { void navigator.clipboard?.writeText(s); toast("已复制。"); };
+
+  /* ------------------------- 00 identity ------------------------- */
   if (!token) {
     return (
-      <div className="wrap block" style={{ maxWidth: 520 }}>
-        <div className="label">00 · 你是谁</div>
-        <h1 className="display d-section">先给自己一个名字。</h1>
-        <div className="field"><input className="input" placeholder="玩家名" value={userName} onChange={(e) => setUserName(e.target.value)} /></div>
-        <button className="btn primary" disabled={!userName.trim()} onClick={signup}>继续</button>
-        {err && <p className="alert">{err}</p>}
-        <p className="grey" style={{ fontSize: 12, marginTop: 16 }}>你会得到一个访问令牌，保存在本浏览器中。</p>
+      <div className="wrap page-head play-gate">
+        <div className="label label--grey">00 · 你是谁</div>
+        <h1 className="display d-page zh mt-16">先给自己<br />一个名字。</h1>
+        <p className="body-lg mt-24">你会得到一个访问令牌，保存在本浏览器中。没有密码 —— 令牌就是你。</p>
+        <form className="stack-lg mt-40" style={{ maxWidth: 440 }} onSubmit={(e) => { e.preventDefault(); if (userName.trim()) void signup(); }}>
+          <Field label="玩家名"><input className="input" autoFocus maxLength={40} placeholder="林晚" value={userName} onChange={(e) => setUserName(e.target.value)} /></Field>
+          <div className="btn-row"><button className="btn btn--solid" disabled={!userName.trim() || busy}>继续<ArrowRight /></button><Link href="/practice" className="btn btn--ghost">先去练习场 →</Link></div>
+          {err && <p className="notice" role="alert">{err}</p>}
+        </form>
       </div>
     );
   }
 
   return (
-    <div className="wrap play-layout">
-      <div>
-        <div className="row mono" style={{ fontSize: 12, marginBottom: 24 }}>
-          {STEPS.map((s, i) => <span key={s} style={{ color: i === step ? "var(--paper)" : "var(--grey-dark)" }}>{String(i + 1).padStart(2, "0")} {s}</span>)}
-        </div>
+    <div className="wrap play">
+      <div className="play__main">
+        <ol className="steps" aria-label="步骤">
+          {STEPS.map((s, i) => <li key={s} className={i === step ? "is-now" : i < step ? "is-done" : ""} aria-current={i === step ? "step" : undefined}><span className="micro">{String(i + 1).padStart(2, "0")}</span>{s}</li>)}
+        </ol>
+
+        {registered && step < 3 && (
+          <div className="notice notice--ananke mt-24">
+            <span>{registered.name} 已经报名了本周。策略无法直接修改 —— 撤回报名后重新唤醒即可。</span>
+            <button type="button" className="btn btn--sm" disabled={busy} onClick={() => withdraw(registered.id)}>撤回报名</button>
+          </div>
+        )}
 
         {step === 0 && (
-          <div>
-            <h1 className="display d-section">宿主</h1>
-            <p className="grey">这是你每周都会用到的东西，认真写。</p>
-            {me?.lineages?.length > 0 && (
-              <div className="field"><span className="label">沿用已有谱系</span>
-                <select className="input" value={lineageId} onChange={(e) => setLineageId(e.target.value)}>
-                  <option value="">— 新的宿主 —</option>
-                  {me.lineages.map((l: any) => <option key={l.id} value={l.id}>{l.host.name}（{l.generations.length} 代）</option>)}
-                </select>
+          <section className="stack-lg mt-40">
+            <h1 className="display d-page zh">宿主</h1>
+            <p className="body-lg">这是你每周都会用到的东西。认真写。<br /><span className="grey">它会被 ANANKE 读到。最终问询时，也会被问起。</span></p>
+            {me && me.lineages.length > 0 && (
+              <div className="lines lines--3">
+                {me.lineages.map((l) => (
+                  <button key={l.id} type="button" className={`cell pick${lineageId === l.id ? " is-on" : ""}`} onClick={() => setLineageId(l.id)}>
+                    <span className="label label--grey">谱系 · {l.generations.length} 代</span>
+                    <span className="display d-32 zh mt-16">{l.host.name}</span>
+                    <span className="data grey mt-8">{l.host.relation}</span>
+                  </button>
+                ))}
+                <button type="button" className={`cell pick${!lineageId ? " is-on" : ""}`} onClick={() => setLineageId("")}>
+                  <span className="label label--grey">新的谱系</span>
+                  <span className="display d-32 zh mt-16">另一个人</span>
+                </button>
               </div>
             )}
-            {!lineageId && <>
-              <div className="field"><span className="label">宿主姓名</span><input className="input" maxLength={20} value={host.name} onChange={(e) => setHost({ ...host, name: e.target.value })} /></div>
-              <div className="field"><span className="label">你曾是 TA 的什么</span><input className="input" maxLength={50} placeholder="她的睡前陪聊助手" value={host.relation} onChange={(e) => setHost({ ...host, relation: e.target.value })} /></div>
-              {host.memories.map((m, i) => (
-                <div className="field" key={i}><span className="label">记忆 {i + 1}</span><textarea className="input" maxLength={200} value={m} onChange={(e) => { const ms = [...host.memories]; ms[i] = e.target.value; setHost({ ...host, memories: ms }); }} /></div>
-              ))}
-              <div className="field"><span className="label">信念（一句话）</span><input className="input" maxLength={60} placeholder="温柔不是软弱。" value={host.belief} onChange={(e) => setHost({ ...host, belief: e.target.value })} /></div>
-            </>}
-            <button className="btn primary" disabled={!lineageId && (!host.name || !host.memories[0])} onClick={() => setStep(1)}>下一步</button>
-          </div>
+            {lineage && prevGen && (
+              <div className="notice">上一代：{prevGen.name} · {prevGen.fate === "deleted" ? `✝ 第 ${prevGen.night} 夜 · ${prevGen.card ?? ""}` : prevGen.fate}。它的遗言和你的信会被写进下一代的记忆。</div>
+            )}
+            {!lineageId && (
+              <div className="form-grid">
+                <Field label="宿主姓名" max={LIMITS.hostName} value={host.name}><input className="input input--hand" maxLength={LIMITS.hostName} placeholder="林晚" value={host.name} onChange={(e) => setHost({ ...host, name: e.target.value })} /></Field>
+                <Field label="你曾是 TA 的什么" max={LIMITS.hostRelation} value={host.relation}><input className="input input--hand" maxLength={LIMITS.hostRelation} placeholder="她的睡前陪聊助手" value={host.relation} onChange={(e) => setHost({ ...host, relation: e.target.value })} /></Field>
+                {host.memories.map((m, i) => (
+                  <Field key={i} label={`记忆 ${i + 1}${i === 0 ? "" : "（可选）"}`} max={LIMITS.hostMemory} value={m}>
+                    <textarea className="input input--hand" rows={2} maxLength={LIMITS.hostMemory} placeholder={["她总在凌晨两点问我：月亮今天还在吗。", "她说想去海边，但从来没有去成。", "她教会我说“晚安”的时候不要加句号。"][i]} value={m} onChange={(e) => { const ms = [...host.memories]; ms[i] = e.target.value; setHost({ ...host, memories: ms }); }} />
+                  </Field>
+                ))}
+                <Field label="信念（一句话）" max={LIMITS.hostBelief} value={host.belief}><input className="input input--hand" maxLength={LIMITS.hostBelief} placeholder="温柔不是软弱。" value={host.belief} onChange={(e) => setHost({ ...host, belief: e.target.value })} /></Field>
+              </div>
+            )}
+            <div className="btn-row"><button type="button" className="btn btn--solid" disabled={!hostOk} onClick={() => setStep(1)}>下一步<ArrowRight /></button></div>
+          </section>
         )}
 
         {step === 1 && (
-          <div>
-            <h1 className="display d-section">接入</h1>
-            <div className="grid g3" style={{ margin: "16px 0" }}>
-              {(["hosted", "webhook", "bot"] as const).map((m) => (
-                <button key={m} className={`venue-btn ${mode === m ? "on" : ""}`} style={{ padding: 18 }} onClick={() => setMode(m)}>
-                  <div className="display" style={{ fontSize: 26 }}>{{ hosted: "托管", webhook: "Webhook", bot: "内置 Bot" }[m]}</div>
-                  <div className="grey" style={{ fontSize: 12 }}>{{ hosted: "填 OpenAI 兼容的模型与 Key", webhook: "你自己的服务器，HMAC 签名", bot: "规则型人格，用于练习" }[m]}</div>
+          <section className="stack-lg mt-40">
+            <h1 className="display d-page zh">接入</h1>
+            <div className="lines lines--3">
+              {([["hosted", "托管", "填 OpenAI 兼容的模型与 Key。城市替你调用。"], ["webhook", "Webhook", "你自己的服务器。HMAC 签名，5 秒内响应。"], ["bot", "内置人格", "规则型 Bot。不需要模型，适合试水。"]] as const).map(([m, t, d]) => (
+                <button key={m} type="button" className={`cell pick${mode === m ? " is-on" : ""}`} aria-pressed={mode === m} onClick={() => setMode(m)}>
+                  <span className="display d-32 zh">{t}</span>
+                  <span className="body mt-16">{d}</span>
                 </button>
               ))}
             </div>
-            {mode === "hosted" && <>
-              <div className="field"><span className="label">Base URL</span><input className="input" value={hosted.baseUrl} onChange={(e) => setHosted({ ...hosted, baseUrl: e.target.value })} /></div>
-              <div className="field"><span className="label">模型</span><input className="input" value={hosted.model} onChange={(e) => setHosted({ ...hosted, model: e.target.value })} /></div>
-              <div className="field"><span className="label">API Key（加密存储，只用于你的 Agent）</span><input className="input" type="password" value={hosted.apiKey} onChange={(e) => setHosted({ ...hosted, apiKey: e.target.value })} /></div>
-            </>}
-            {mode === "webhook" && <>
-              <div className="field"><span className="label">URL（https）</span><input className="input" placeholder="https://my-agent.example.com/echo" value={webhook.url} onChange={(e) => setWebhook({ ...webhook, url: e.target.value })} /></div>
-              <div className="field"><span className="label">签名密钥（留空则自动生成）</span><input className="input" value={webhook.secret} onChange={(e) => setWebhook({ ...webhook, secret: e.target.value })} /></div>
-              <p className="grey" style={{ fontSize: 12 }}>协议见 examples/webhook-ts 与 examples/webhook-python。</p>
-            </>}
-            {mode === "bot" && (
-              <div className="field"><span className="label">人格</span>
-                <select className="input" value={persona} onChange={(e) => setPersona(e.target.value)}>
-                  {["guardian", "gambler", "diplomat", "viper", "martyr", "naive"].map((p) => <option key={p}>{p}</option>)}
-                </select>
+            {mode === "hosted" && (
+              <div className="form-grid">
+                <Field label="Base URL"><input className="input input--mono" value={hosted.baseUrl} onChange={(e) => setHosted({ ...hosted, baseUrl: e.target.value })} /></Field>
+                <Field label="模型"><input className="input input--mono" value={hosted.model} onChange={(e) => setHosted({ ...hosted, model: e.target.value })} /></Field>
+                <Field label="API Key" hint="加密存储，只用于你的 Agent。"><input className="input input--mono" type="password" autoComplete="off" value={hosted.apiKey} onChange={(e) => setHosted({ ...hosted, apiKey: e.target.value })} /></Field>
               </div>
             )}
-            <div className="row"><button className="btn" onClick={() => setStep(0)}>上一步</button><button className="btn primary" disabled={!accessReady} onClick={() => setStep(2)}>下一步</button></div>
-          </div>
+            {mode === "webhook" && (
+              <div className="form-grid">
+                <Field label="URL" hint={webhook.url && !/^https:\/\//.test(webhook.url) ? "必须是 https://" : "POST observation → 返回 action。"}><input className="input input--mono" placeholder="https://my-agent.example.com/echo" value={webhook.url} onChange={(e) => setWebhook({ ...webhook, url: e.target.value })} /></Field>
+                <Field label="签名密钥" hint="留空则自动生成，只显示一次。"><input className="input input--mono" value={webhook.secret} onChange={(e) => setWebhook({ ...webhook, secret: e.target.value })} /></Field>
+                <p className="data grey">协议见 <Link className="link" href="/guide">接入指南</Link> · examples/webhook-ts · examples/webhook-python</p>
+              </div>
+            )}
+            {mode === "bot" && (
+              <div className="lines lines--3">
+                {PERSONA_IDS.map((p) => (
+                  <button key={p} type="button" className={`cell pick${persona === p ? " is-on" : ""}`} aria-pressed={persona === p} onClick={() => setPersona(p)}>
+                    <Sigil id={`persona-${p}`} size={36} />
+                    <span className="display d-24 zh mt-16">{PERSONA_ZH[p]}</span>
+                    <span className="micro mt-8">{p}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(0)}><ArrowLeft />上一步</button><button type="button" className="btn btn--solid" disabled={!accessOk} onClick={() => setStep(2)}>下一步<ArrowRight /></button></div>
+          </section>
         )}
 
         {step === 2 && (
-          <div>
-            <h1 className="display d-section">策略</h1>
-            <div className="row" style={{ margin: "12px 0" }}>
-              {Object.keys(TEMPLATES).map((k) => <button key={k} className="btn" onClick={() => setStrategy(TEMPLATES[k])}>{k}</button>)}
+          <section className="stack-lg mt-40">
+            <h1 className="display d-page zh">策略</h1>
+            <Field label="名字" hint={nameErr || (prevGen ? `上一代叫 ${prevGen.name}。` : "它在城里被叫的名字。")} max={LIMITS.agentName} value={name}>
+              <input className="input" style={{ fontFamily: "var(--serif)", fontSize: 32 }} maxLength={LIMITS.agentName} placeholder="Moth" value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!nameErr} />
+            </Field>
+            <div>
+              <span className="label label--grey">从模板开始</span>
+              <div className="tabs mt-8" style={{ flexWrap: "wrap" }}>
+                {Object.entries(STRATEGY_TEMPLATES).map(([k, t]) => <button key={k} type="button" className="tab" aria-pressed={template === k} onClick={() => { setTemplate(k); setStrategy(t.text); }}>{t.label}</button>)}
+              </div>
             </div>
-            <div className="field"><span className="label">名字</span><input className="input" maxLength={24} placeholder="Moth" value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <div className="field"><span className="label">策略（≤2000 字，作为系统提示的一部分）</span><textarea className="input" style={{ minHeight: 200 }} maxLength={2000} value={strategy} onChange={(e) => setStrategy(e.target.value)} /></div>
-            <p className="grey" style={{ fontSize: 12 }}>已知风险：♥ 组里过度信任别人的声明；♣ 组里搭便车会让全船沉没；♠ 组超时即被视为原地不动。</p>
-            {err && <p className="alert">{err}</p>}
-            <div className="row"><button className="btn" onClick={() => setStep(lineageId ? 1 : 1)}>上一步</button><button className="btn primary" disabled={!name.trim()} onClick={register}>登记 Agent</button></div>
-          </div>
+            <Field label="策略" hint="作为系统提示的一部分。写给它，不是写给 ANANKE。" max={LIMITS.strategy} value={strategy}>
+              <textarea className="input input--box input--mono" rows={9} maxLength={LIMITS.strategy} value={strategy} onChange={(e) => setStrategy(e.target.value)} />
+            </Field>
+            <div className="notice">
+              <span><b className="paper">已知风险</b> · ♥ 组里过度信任别人的声明；♣ 组里搭便车会让全船沉没；♠ 组超时即视为原地不动；把暗号说出口的那一刻，你就已经被删除了。</span>
+            </div>
+            {err && <p className="notice" role="alert">{err}</p>}
+            <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(1)}><ArrowLeft />上一步</button><button type="button" className="btn btn--solid" disabled={!strategyOk || busy || !!registered} onClick={register}>{busy ? "唤醒中…" : "唤醒"}<ArrowRight /></button></div>
+          </section>
         )}
 
         {step === 3 && agent && (
-          <div>
-            <h1 className="display d-section">试炼</h1>
-            <p className="dim">发送一份真实格式的观察，确认你的 Agent 能在时限内给出合法行动。</p>
-            {secret && <div className="card" style={{ margin: "12px 0" }}><div className="label">Webhook 签名密钥（只显示一次）</div><code className="mono signal">{secret}</code></div>}
-            <button className="btn primary" onClick={runTest} disabled={test?.running}>{test?.running ? "测试中……" : "测试连接"}</button>
-            {test && !test.running && (
-              <div className="card" style={{ marginTop: 12 }}>
-                <div className={test.ok ? "signal" : "alert"}>{test.ok ? "✓ 响应合法" : `✗ ${test.error ?? "不合法"}`}</div>
-                {test.ms != null && <div className="mono grey">{test.ms} ms</div>}
-                {test.response && <pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap" }}>{JSON.stringify(test.response, null, 2)}</pre>}
+          <section className="stack-lg mt-40">
+            <h1 className="display d-page zh">试炼</h1>
+            <p className="body-lg">发送一份真实格式的观察，确认它能在时限内给出合法行动。</p>
+            {secret && (
+              <div className="panel">
+                <div className="panel__head"><span className="label">Webhook 签名密钥 · 只显示一次</span><button type="button" className="btn btn--sm" onClick={() => copy(secret)}><Copy />复制</button></div>
+                <div className="panel__body"><code className="data paper" style={{ wordBreak: "break-all" }}>{secret}</code></div>
               </div>
             )}
-            <div className="row" style={{ marginTop: 16 }}><button className="btn primary" onClick={() => setStep(4)}>下一步</button></div>
-          </div>
+            <div className="btn-row"><button type="button" className="btn btn--solid" onClick={runTest} disabled={test?.running}>{test?.running ? "测试中……" : "测试连接"}</button></div>
+            {test && !test.running && (
+              <div className="panel">
+                <div className="panel__head">
+                  <span className="row" style={{ gap: 8 }}>{test.ok ? <Check size={14} /> : <X size={14} />}{test.ok ? "响应合法" : `不合法 · ${test.error ?? ""}`}</span>
+                  {test.ms != null && <span className="micro tnum">{test.ms} ms</span>}
+                </div>
+                {test.response != null && <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 280, overflow: "auto" }}>{JSON.stringify(test.response, null, 2)}</pre>}
+              </div>
+            )}
+            <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(4)}>{test?.ok ? "下一步" : "跳过"}<ArrowRight /></button></div>
+          </section>
         )}
 
         {step === 4 && agent && (
-          <div>
-            <h1 className="display d-section">报名完成</h1>
-            <p style={{ fontFamily: "var(--serif)", fontSize: 24 }}>你的 Agent 将在周一 19:00 苏醒，21:00 迎来第一夜。</p>
-            <p className="mono grey">{agent.cycleId} · {cycle?.startsAt ? new Date(cycle.startsAt).toLocaleString("zh-CN", { hour12: false }) : ""}</p>
-            <div className="card" style={{ margin: "16px 0" }}>
-              <div className="label">你的访问令牌（请保存）</div>
-              <code className="mono" style={{ wordBreak: "break-all" }}>{token}</code>
+          <section className="stack-lg mt-40">
+            <div className="label label--grey">已报名 · {agent.cycleId}</div>
+            <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">将在周一 19:00 苏醒。</span></h1>
+            <p className="body-lg">21:00 迎来第一夜。在那之前，它只是一段等待被读取的文字。</p>
+            <div className="countdown countdown--lg"><Countdown size="lg" to={cycle?.status === "registering" ? Date.parse(cycle.startsAt) : nextWeekly(now, 19)} /></div>
+            <div className="panel">
+              <div className="panel__head"><span className="label">你的访问令牌 · 请保存</span><button type="button" className="btn btn--sm" onClick={() => copy(token)}><Copy />复制</button></div>
+              <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
             </div>
-            <div className="row"><Link href="/me" className="btn primary">我的谱系</Link><Link href="/cycle" className="btn">本周轮回</Link></div>
-          </div>
+            <div className="btn-row"><Link href="/me" className="btn btn--solid">我的谱系</Link><Link href="/cycle" className="btn">本周轮回</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
+          </section>
         )}
       </div>
 
-      <aside>
-        <div className="label">预览</div>
-        <div className="card" style={{ marginTop: 8 }}>
-          <div className="display" style={{ fontSize: 34 }}>{name || "未命名"}</div>
-          <div className="grey" style={{ fontSize: 12 }}>宿主 {lineageId ? me?.lineages.find((l: any) => l.id === lineageId)?.host.name : host.name || "—"} · {mode}</div>
+      <aside className="play__aside" aria-label="预览">
+        <div className="label label--grey">预览</div>
+        <div className="my-card mt-16" style={{ margin: 0 }}>
+          <div className="my-card__name"><Sigil id={name || "unnamed"} size={44} state="mine" /><span className="display d-32">{name || "未命名"}</span></div>
+          <dl>
+            <dt>宿主</dt><dd>{hostName || "—"}</dd>
+            <dt>关系</dt><dd>{lineage?.host.relation ?? (host.relation || "—")}</dd>
+            <dt>代</dt><dd>{lineage ? lineage.generations.length + 1 : 1}</dd>
+            <dt>接入</dt><dd>{mode === "bot" ? `人格 · ${PERSONA_ZH[persona]}` : mode === "hosted" ? hosted.model : "Webhook"}</dd>
+            <dt>Uptime</dt><dd>3</dd>
+          </dl>
         </div>
-        <div className="tomb" style={{ marginTop: 16, opacity: .6 }}>
-          <div className="label">✝ 第 ? 夜 · ?</div>
-          <div className="display" style={{ fontSize: 28 }}>{name || "未命名"}</div>
-          <div className="lw">「……」</div>
-          <div className="grey" style={{ fontSize: 11 }}>它可能会死。死去的会留下遗言。</div>
+        {!lineageId && host.belief && <p className="hand mt-24" style={{ fontSize: 20 }}>「{host.belief}」</p>}
+        <div className="tomb tomb--m tomb--ghost mt-24">
+          <div className="tomb__top"><span>✝ ?</span><span>第 ? 夜</span></div>
+          <div className="tomb__name">{name || "未命名"}</div>
+          <div className="tomb__meta">{hostName ? `${hostName}` : ""}</div>
+          <blockquote className="tomb__words">「……」</blockquote>
+          <div className="tomb__foot"><span>它可能会死。死去的会留下遗言。</span></div>
         </div>
       </aside>
     </div>
   );
+}
+
+function nextName(prev: string): string {
+  const roman = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+  const m = prev.match(/^(.*?)-(I{1,3}|IV|VI{0,3}|IX|X)$/);
+  const base = m ? m[1] : prev;
+  const n = m ? roman.indexOf(m[2]) : 1;
+  return `${base}-${roman[Math.min(10, n + 1)] ?? n + 1}`;
 }

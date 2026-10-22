@@ -26,7 +26,7 @@ if (prod && (!adminToken || !secretKey)) {
   process.exit(1);
 }
 
-const { server, manager, store } = createApp({
+const { server, manager, store, exam } = createApp({
   dataDir: env.ECHO_DATA_DIR ?? "data",
   adminToken,
   secretKey,
@@ -71,6 +71,7 @@ const port = Number(env.PORT ?? 8787);
 server.listen(port, () => {
   console.log(`残响城 API 已启动：http://localhost:${port}  (mode=${mode})`);
   tick();
+  exam.ensureHouse().then(() => console.log(`[exam] 常驻考场就绪：${exam.db.examinees.length} 位考生`)).catch((e) => console.warn("[exam]", e));
   setInterval(tick, 30000).unref();
 });
 
@@ -78,6 +79,7 @@ const shutdown = () => {
   console.log("正在关闭……");
   manager.stopAll();
   store.flush();
+  exam.flush();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 2000).unref();
 };

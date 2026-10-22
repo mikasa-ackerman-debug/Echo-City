@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { hashToken, newId, newToken, safeEqual, Sealer } from "./crypto";
 import { ApiError, CycleManager, publicAgent, publicTombstone, publicData, type ManagerOptions } from "./manager";
 import { Store, type UserRec } from "./store";
+import { ExamService } from "./exam";
 import { sanitizeText } from "@echo/protocol";
 
 export interface AppOptions extends Partial<Omit<ManagerOptions, "sealer">> {
@@ -48,6 +49,7 @@ export function createApp(opts: AppOptions) {
     sealer: new Sealer(opts.secretKey),
     now: opts.now,
   });
+  const exam = new ExamService({ dataDir: opts.dataDir, sealer: new Sealer(opts.secretKey), secret: opts.secretKey, allowHttp: opts.allowInsecureWebhooks ?? false });
   const routes: Route[] = [];
   const route = (method: string, path: string, handler: Handler, auth?: Route["auth"]) => {
     const keys: string[] = [];
@@ -177,6 +179,26 @@ export function createApp(opts: AppOptions) {
   });
   route("POST", "/api/tombstones/:agentId/letter", ({ params, body, user }) => manager.writeLetter(user!, params.agentId, String(body?.text ?? "")), "user");
 
+  /* ---------------- exam: standing ability assessment ---------------- */
+  route("GET", "/api/exam/library", () => exam.library());
+  route("GET", "/api/exam/ladder", () => exam.ladder());
+  route("GET", "/api/exam/sessions", ({ query }) => exam.recent(Math.min(100, Number(query.get("limit") ?? 30) || 30)));
+  route("GET", "/api/exam/sessions/:id", ({ params }) => {
+    const s = exam.session(params.id);
+    if (!s) throw new ApiError(404, "考试不存在");
+    return exam.publicSession(s);
+  });
+  route("GET", "/api/exam/examinees/mine", ({ user }) => exam.mine(user!.id), "user");
+  route("GET", "/api/exam/examinees/:id", ({ params }) => exam.profile(params.id));
+  route("POST", "/api/exam/examinees", ({ body, user }) => exam.createExaminee(user!.id, body ?? {}), "user");
+  route("DELETE", "/api/exam/examinees/:id", ({ params, user }) => (exam.removeExaminee(user!.id, params.id), { ok: true }), "user");
+  route("POST", "/api/exam/sessions", ({ body, user }) => exam.publicSession(exam.startSession(user!.id, String(body?.examineeId ?? ""), Number(body?.size ?? 12) || 12)), "user");
+  route("GET", "/api/exam/sessions/:id/next", ({ params, user }) => exam.next(user!.id, params.id), "user");
+  route("POST", "/api/exam/sessions/:id/answer", ({ params, body, user }) => exam.answer(user!.id, params.id, String(body?.task_id ?? ""), body?.answer), "user");
+  route("POST", "/api/exam/sessions/:id/abort", ({ params, user }) => exam.abort(user!.id, params.id), "user");
+  route("GET", "/api/exam/practice", ({ query }) => exam.practiceTask(String(query.get("family") ?? ""), Number(query.get("level") ?? 1) || 1, String(query.get("seed") ?? "0")));
+  route("POST", "/api/exam/practice", ({ body }) => exam.practiceGrade(String(body?.family ?? ""), Number(body?.level ?? 1) || 1, String(body?.seed ?? "0"), body?.answer));
+
   /* ---------------- dispatch ---------------- */
   const authUser = (req: IncomingMessage, query: URLSearchParams): UserRec | undefined => {
     const h = req.headers.authorization;
@@ -237,7 +259,7 @@ export function createApp(opts: AppOptions) {
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   server.maxHeadersCount = 64;
-  return { server, store, manager };
+  return { server, store, manager, exam };
 }
 
 const STREAM = Symbol("stream");

@@ -1,28 +1,29 @@
 "use client";
+import Link from "next/link";
 import type { CycleEvent } from "@echo/engine";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Player } from "@/components/player";
+import { SourceNote } from "@/components/chrome";
 import { WhisperOverlay } from "@/components/whisper";
-import { api, subscribe } from "@/lib/api";
-import { mergeEvents } from "@/lib/playback";
+import { subscribe, type StreamStatus } from "@/lib/api";
+import { cycleNo, useCurrentCycle, useMe } from "@/lib/data";
+import { agentsOfStart, mergeEvents } from "@/lib/playback";
+import { FlashGate } from "@/components/gate";
 
 export default function LivePage() {
-  const [cycle, setCycle] = useState<any>(null);
+  const { cycle, source, none, demoEvents, loading } = useCurrentCycle(15_000);
+  const { me } = useMe();
   const [events, setEvents] = useState<CycleEvent[]>([]);
-  const [conn, setConn] = useState<"open" | "error" | "idle">("idle");
-  const [mine, setMine] = useState<string[]>([]);
+  const [conn, setConn] = useState<StreamStatus | "idle">("idle");
+  const cycleId = source === "api" ? cycle?.id : undefined;
+  const mine = useMemo(() => me?.agents.filter((a) => !cycle || a.cycleId === cycle.id).map((a) => a.id) ?? [], [me, cycle]);
 
   useEffect(() => {
-    api("/api/cycles/current").then(setCycle).catch(() => setConn("error"));
-    api("/api/me").then((m) => setMine(m.agents.map((a: any) => a.id))).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!cycle) return;
+    if (!cycleId) return;
     setEvents([]);
     let pending: CycleEvent[] = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = subscribe(cycle.id, (e) => {
+    const stop = subscribe(cycleId, (e) => {
       pending.push(e);
       if (!timer) timer = setTimeout(() => {
         const batch = pending;
@@ -32,14 +33,44 @@ export default function LivePage() {
       }, 50);
     }, setConn);
     return () => { stop(); if (timer) clearTimeout(timer); };
-  }, [cycle?.id]);
+  }, [cycleId]);
 
-  if (!cycle) return <div className="wrap block"><p className="grey">{conn === "error" ? "无法连接城市（API 未启动？）" : "…"}</p></div>;
+  const shown = source === "demo" ? demoEvents : events;
+  const names = useMemo(() => Object.fromEntries(agentsOfStart(shown).map((a) => [a.id, a.name])), [shown]);
+
+  if (!cycle && (loading || source === "demo")) return <div className="wrap page-head"><div className="skel" style={{ height: 520 }} /></div>;
+  if (!cycle || none) {
+    return (
+      <div className="wrap page-head">
+        <div className="label label--grey">LIVE</div>
+        <h1 className="display d-page zh mt-16">城市还没有醒。</h1>
+        <p className="body-lg mt-24">还没有任何轮回。每周一 19:00 苏醒，21:00 开场。</p>
+        <div className="btn-row mt-40"><Link href="/play" className="btn btn--solid">唤醒我的 Agent</Link><Link href="/replay" className="btn">看一场演示回放</Link></div>
+      </div>
+    );
+  }
+  if (cycle.status === "registering") {
+    return (
+      <div className="wrap page-head">
+        <div className="label label--grey">CYCLE {cycleNo(cycle.id)} · 报名中</div>
+        <h1 className="display d-page zh mt-16">还没有开场。</h1>
+        <p className="body-lg mt-24">已有 {cycle.roster.length} 个 Agent 报名。开场后这里会自动开始直播。</p>
+        <div className="btn-row mt-40"><Link href="/cycle" className="btn btn--solid">本周轮回</Link><Link href="/play" className="btn">报名</Link></div>
+      </div>
+    );
+  }
+  const ended = cycle.status === "ended" || cycle.status === "aborted";
   return (
-    <div>
-      <div className="statusbar"><span>{cycle.id} · 直播 · {events.length} 事件</span><span>{conn === "open" ? "已连接" : conn === "error" ? "重连中…" : ""}</span></div>
-      <Player events={events} live myAgentIds={mine} />
-      <WhisperOverlay cycleId={cycle.id} />
-    </div>
+    <FlashGate>
+      {ended && source === "api" && (
+        <div className="notice notice--ananke" style={{ margin: 0, borderLeft: 0, borderRight: 0 }}>
+          <span>本周轮回已经结束。这里保留了最后的画面。</span>
+          <Link href={`/cycle/${cycle.id}/replay`} className="btn btn--sm">观看完整回放</Link>
+        </div>
+      )}
+      <SourceNote source={source} what="演示城市的“直播”（按真实投递顺序回放，结算后才公开私密事件）" />
+      <Player events={shown} live myAgentIds={mine} title={`CYCLE ${cycleNo(cycle.id)} · ${ended ? "已结束" : conn === "error" ? "重连中…" : "LIVE"}`} />
+      {source === "api" && <WhisperOverlay cycleId={cycle.id} agentNames={names} otherNames={Object.values(names)} />}
+    </FlashGate>
   );
 }
