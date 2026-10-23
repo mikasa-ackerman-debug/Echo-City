@@ -101,4 +101,28 @@ describe("ladder cycle", () => {
     for (const id of Object.keys(s.agents)) if (s.agents[id].echo) expect(s.order).not.toContain(id);
     expect(res.events.some((e) => e.type === "slot_open")).toBe(true);
   });
+
+  it("a host earns one optional whisper per 4 cards climbed on a suit", async () => {
+    const { roster: r, drivers } = botRoster(12);
+    let asked = 0;
+    const res = await runCycle({ id: "lad-w", seed: "ladder-7", roster: r, drivers, config: { mode: "ladder" } }, {
+      timeoutScale: 0.001,
+      // the first host speaks every time; the rest stay silent (whispers are optional)
+      whispers: (state, agents) => {
+        asked++;
+        for (const id of agents) expect(state.agents[id].whisperCredits).toBeGreaterThan(0);
+        return agents.includes(state.order[0]) ? { [state.order[0]]: "我一直都在。" } : {};
+      },
+    });
+    const earned = res.events.filter((e) => e.type === "whisper_earned");
+    expect(earned.length).toBeGreaterThan(0);
+    for (const e of earned) expect((e.data as { cleared: number }).cleared % 4).toBe(0);
+    expect(asked).toBeGreaterThan(0);
+    const spoken = res.events.filter((e) => e.type === "host_whisper");
+    expect(spoken.every((e) => e.vis === "public" && (e.data as { id: string }).id === res.state.order[0])).toBe(true);
+    const first = res.state.order[0];
+    const earnedFirst = earned.filter((e) => (e.data as { id: string }).id === first).length;
+    expect(spoken.length).toBeLessThanOrEqual(earnedFirst);
+    expect(res.events.some((e) => e.type === "whisper_open")).toBe(false);
+  });
 });

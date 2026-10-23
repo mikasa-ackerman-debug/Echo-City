@@ -233,7 +233,9 @@ describe("exam api", () => {
         expect((await call("POST", "/api/agents", { cycleId: cyc.id, name: `Bank${i}`, mode: "bot", bot: { persona: "guardian" }, host }, { authorization: `Bearer ${t}` })).status).toBe(200);
       }
       expect((await call("POST", `/api/cycles/${cyc.id}/start`, {}, { "x-admin-token": "adm" })).status).toBe(200);
-      const live = (app2.manager as any).live.get(cyc.id);
+      // the frozen frontier lives in the cycle config (read from the checkpoint: a short city may already be over)
+      for (let i = 0; i < 400 && !app2.store.loadState(cyc.id); i++) await new Promise((r) => setTimeout(r, 5));
+      const live = (app2.manager as any).live.get(cyc.id) ?? app2.store.loadState(cyc.id);
       expect(live?.config?.bankFrontier?.["logic.knights"]).toBeTypeOf("number");
       for (let i = 0; i < 3600; i++) {
         if ((await call("GET", `/api/cycles/${cyc.id}`)).json.status === "ended") break;

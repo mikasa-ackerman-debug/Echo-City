@@ -119,10 +119,7 @@ function ladderSlot(k: K): boolean {
     s.stage = "ending";
     return false;
   }
-  if (s.dayRound >= s.config.slotsPerDay) {
-    s.stage = "whisper";
-    return false;
-  }
+  if (s.dayRound >= s.config.slotsPerDay) return endOfDay(k);
   s.dayRound++;
   s.phase = "day";
   s.venues = [];
@@ -322,6 +319,11 @@ function ladderSettle(k: K): boolean {
         );
         pushEvent(a, "trial_pass", `你通过了 ${t.card}「${def.name}」。`);
         addUptime(k, a, ladderReward(def.rank), "trial_pass", t.card);
+        if (l[def.suit] % WHISPER_EVERY === 0) {
+          a.whisperCredits = (a.whisperCredits ?? 0) + 1;
+          k.emit("whisper_earned", { agent: a.name, id, suit: def.suit, cleared: l[def.suit], credits: a.whisperCredits }, { text: `${a.name} 在 ${def.suit} 上又走过了 ${WHISPER_EVERY} 张牌。它的宿主可以对它说一句话。` });
+          pushEvent(a, "whisper_earned", `你在 ${def.suit} 上又走过了 ${WHISPER_EVERY} 张牌。你的宿主也许会对你说一句话。`);
+        }
         if (jokerOpen(a)) k.emit("joker_unlocked", { agent: a.name, id }, { text: `${a.name} 走完了四十八张牌。最后的门为它打开了。` });
       } else {
         const cost = t.trialId === JOKER_TRIAL ? "delete" : ladderFailCost(def.rank);
@@ -352,35 +354,52 @@ function ladderSettle(k: K): boolean {
     s.stage = "ending";
     return false;
   }
-  s.stage = "day";
+  s.stage = "whisper";
   return false;
 }
 
-/* ---------------- end of day: host whisper ---------------- */
+/* ---------------- host whispers: earned on the ladder ---------------- */
 
+/** One optional host whisper per this many cards climbed on any single suit. */
+export const WHISPER_EVERY = 4;
+
+/**
+ * After every slot: hosts holding a whisper (earned by climbing 4 cards on a suit) may use it.
+ * Optional — an unused whisper is kept for later. The whisper reaches the agent with its next request.
+ */
 function ladderWhisper(k: K): boolean {
   const s = k.s;
-  s.phase = "whisper";
-  if (s.waiting.kind === "host" && s.waiting.label === `whisper-${s.night}`) {
-    s.night++;
+  if (s.waiting.kind === "host" && s.waiting.label.startsWith("whisper-")) {
     s.waiting = { kind: "done" };
-    if (s.night > s.config.maxDays) {
-      k.emit("city_timeout", { days: s.config.maxDays }, { text: `第 ${s.config.maxDays} 天过去了，没有人走到最后的门。ANANKE 关闭了这座城。` });
-      s.stage = "ending";
-    } else s.stage = "dawn";
+    s.stage = "day";
     return false;
   }
-  k.emit("night_end", { night: s.night, alive: alive(s).length, deleted: Object.values(s.agents).filter((a) => !a.echo && a.deletion?.night === s.night).map((a) => a.name), board: board(s) }, { text: `第 ${s.night} 天结束。存活 ${alive(s).length} 人。` });
-  for (const id of alive(s)) s.agents[id].whisper = undefined;
-  k.emit("whisper_open", { night: s.night, agents: alive(s).map((id) => nameOf(s, id)) }, { text: "现在，你可以对它说一句话。" });
-  s.waiting = { kind: "host", agents: alive(s), label: `whisper-${s.night}` };
+  const holders = alive(s).filter((id) => !s.agents[id].echo && (s.agents[id].whisperCredits ?? 0) > 0);
+  if (!holders.length) {
+    s.stage = "day";
+    return false;
+  }
+  s.phase = "whisper";
+  s.waiting = { kind: "host", agents: holders, label: `whisper-${s.night}-${s.dayRound}` };
   return true;
+}
+
+/** All slots of the day are played: the day closes and the next dawn comes. */
+function endOfDay(k: K): boolean {
+  const s = k.s;
+  k.emit("night_end", { night: s.night, alive: alive(s).length, deleted: Object.values(s.agents).filter((a) => !a.echo && a.deletion?.night === s.night).map((a) => a.name), board: board(s) }, { text: `第 ${s.night} 天结束。存活 ${alive(s).length} 人。` });
+  s.night++;
+  if (s.night > s.config.maxDays) {
+    k.emit("city_timeout", { days: s.config.maxDays }, { text: `第 ${s.config.maxDays} 天过去了，没有人走到最后的门。ANANKE 关闭了这座城。` });
+    s.stage = "ending";
+  } else s.stage = "dawn";
+  return false;
 }
 
 export function board(s: CycleState) {
   return s.order.map((id) => {
     const a = s.agents[id];
-    return { id, name: a.name, status: a.status, uptime: a.uptime, ladder: { ...ladderOf(a) }, total: ladderTotal(a) };
+    return { id, name: a.name, status: a.status, uptime: a.uptime, ladder: { ...ladderOf(a) }, total: ladderTotal(a), whispers: a.whisperCredits ?? 0 };
   });
 }
 

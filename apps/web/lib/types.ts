@@ -35,13 +35,16 @@ export interface LobbyView {
   capacity: number;
   seated: number;
   fillAt: string | null;
-  agents: Array<{ id: string; name: string; mode: AgentMode; kind: string; profile: Record<string, number> | null; createdAt: string }>;
+  agents: Array<{ id: string; name: string; mode: AgentMode; kind: string; profile: Record<string, number> | null; createdAt: string; warmup?: { sessionId: string; status: "running" | "done" | "aborted"; done: number; total: number; score?: number } | null }>;
 }
 
 export interface RosterRow { id: string; name: string; mode: AgentMode; status: AgentStatus; returned: boolean; host?: string; generation: number }
 
 export interface WhisperWindow {
   open: boolean;
+  /** Ladder rules: earned, optional whispers with no deadline. */
+  rules?: "ladder";
+  credits?: Record<string, number>;
   serverNow: string;
   night?: number;
   deadline?: string;

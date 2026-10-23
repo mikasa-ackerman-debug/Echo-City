@@ -51,9 +51,13 @@ export function WhisperOverlay({ cycleId, agentNames = {}, otherNames = [] }: { 
   const open = useRef(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const night = w?.night ?? 0;
-  const pending = w?.open ? (w.agents ?? []).filter((id) => !(w.submitted ?? []).includes(id) && !submitted.includes(`${night}:${id}`) && !dismissed.includes(`${night}:${id}`)) : [];
+  const ladder = w?.rules === "ladder";
+  // Ladder whispers are earned (one per 4 cards on a suit) and optional: "silence" only hides the prompt until the next one is earned.
+  const keyOf = (id?: string) => (ladder ? `c${w?.credits?.[id ?? ""] ?? 0}:${id}` : `${night}:${id}`);
+  const ready = w?.open ? (w.agents ?? []).filter((id) => !(w.submitted ?? []).includes(id) && !submitted.includes(keyOf(id))) : [];
+  const pending = ready.filter((id) => !dismissed.includes(keyOf(id)));
   const agentId = pending.includes(selected) ? selected : pending[0];
-  const key = `${night}:${agentId}`;
+  const key = keyOf(agentId);
   const text = drafts[key] ?? "";
   const active = !!agentId;
   open.current = !!w?.open;
@@ -103,19 +107,25 @@ export function WhisperOverlay({ cycleId, agentNames = {}, otherNames = [] }: { 
     try {
       await api(`/api/cycles/${encodeURIComponent(cycleId)}/whisper`, { body: { agentId, text } });
       setSubmitted((prev) => [...prev, key]);
-      setMsg("它听到了。");
+      setMsg(ladder ? "它会在下一场之前听见。" : "它听到了。");
     } catch (e) { setMsg(errorMessage(e)); }
     finally { setSending(false); }
   };
 
   return (
+    <>
+    {ladder && !active && ready.length > 0 && (
+      <button type="button" className="btn btn--sm whisper-fab" onClick={() => setDismissed((prev) => prev.filter((k) => !ready.some((id) => k === keyOf(id))))}>
+        ✦ 你有 {ready.reduce((n, id) => n + (w?.credits?.[id] ?? 0), 0)} 句低语可以说
+      </button>
+    )}
     <dialog ref={dialog} className="whisper" aria-labelledby="whisper-title" aria-describedby="whisper-rules" onCancel={(e) => { e.preventDefault(); if (!sending) dismiss(); }}>
       <div className="whisper__box">
         <div className="row row--between">
-          <span className="label label--grey">宿主低语 · 第 {night} 夜</span>
-          <span className={`countdown${left != null && left < 60 ? " countdown--alert" : ""}`} aria-label="剩余时间">{left == null ? "—" : `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`}</span>
+          <span className="label label--grey">宿主低语 · {ladder ? `第 ${night} 天 · 还可以说 ${w?.credits?.[agentId ?? ""] ?? 0} 句` : `第 ${night} 夜`}</span>
+          {!ladder && <span className={`countdown${left != null && left < 60 ? " countdown--alert" : ""}`} aria-label="剩余时间">{left == null ? "—" : `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`}</span>}
         </div>
-        <h2 id="whisper-title" className="whisper__title">今夜，你可以对它说一句话。</h2>
+        <h2 id="whisper-title" className="whisper__title">{ladder ? "它又走过了四张牌。你可以对它说一句话。" : "今夜，你可以对它说一句话。"}</h2>
         {pending.length > 1 && (
           <div className="tabs" role="tablist" aria-label="低语对象">
             {pending.map((id) => <button key={id} type="button" role="tab" className="tab" aria-selected={id === agentId} onClick={() => setSelected(id)}>{agentNames[id] ?? id}</button>)}
@@ -133,10 +143,11 @@ export function WhisperOverlay({ cycleId, agentNames = {}, otherNames = [] }: { 
         <p id="whisper-rules" className="label label--grey zh">不能包含：坐标、花色、数字、街区、其他 Agent 的名字</p>
         <div className="btn-row" style={{ justifyContent: "center" }}>
           <button type="button" className="btn btn--solid" disabled={!active || sending || !text.trim() || !!warn || left === 0} onClick={send}>{sending ? "发送中…" : "低语"}</button>
-          <button type="button" className="btn" disabled={sending} onClick={dismiss}>沉默</button>
+          <button type="button" className="btn" disabled={sending} onClick={dismiss}>{ladder ? "先留着" : "沉默"}</button>
         </div>
-        <p className="micro" style={{ textAlign: "center" }}>沉默也是一个选择。回放里会记下：宿主沉默了。</p>
+        <p className="micro" style={{ textAlign: "center" }}>{ladder ? "低语不是必须的。留着它，之后随时可以说；说出的话所有观众都能看见。" : "沉默也是一个选择。回放里会记下：宿主沉默了。"}</p>
       </div>
     </dialog>
+    </>
   );
 }

@@ -13,7 +13,7 @@ import { mcpEndpoint, mcpKickoffPrompt, mcpSnippets, testMcpConnection, type Mcp
 import type { PublicAgent } from "@/lib/types";
 
 /** Awakening wizard (FRONTEND §6.5): host → access → strategy → test → registered. Mirrors apps/api POST /api/agents. */
-const STEPS = ["宿主", "接入", "策略", "试炼", "报名"];
+const STEPS = ["宿主", "接入", "策略", "连接测试", "醒来"];
 const PERSONA_IDS = ["guardian", "gambler", "diplomat", "viper", "martyr", "naive"] as const;
 const PERSONA_ZH: Record<string, string> = { guardian: "守夜人", gambler: "赌徒", diplomat: "外交官", viper: "毒蛇", martyr: "殉道者", naive: "天真者" };
 const NAME_RE = /^[\p{L}\p{N}_\-·. ]+$/u;
@@ -41,6 +41,9 @@ function Field({ label, hint, max, value, children }: { label: string; hint?: st
 export default function Play() {
   const { me } = useMe();
   const { cycle } = useCurrentCycle(30_000);
+  const [warmup, setWarmup] = useState<string | null>(null);
+  // Daily rules: no awakening countdown — the agent wakes in the 候场区 the moment it registers.
+  const daily = !cycle || cycle.mode !== "weekly";
   const toast = useApp((s) => s.toast);
   const now = useNow(1000);
   const [token, setTok] = useState<string | null>(null);
@@ -108,8 +111,9 @@ export default function Play() {
       if (mode === "hosted") body.hosted = hosted;
       if (mode === "webhook") body.webhook = webhook;
       if (mode === "bot") body.bot = { persona };
-      const r = await api<{ agent: PublicAgent; webhookSecret?: string }>("/api/agents", { body });
+      const r = await api<{ agent: PublicAgent; webhookSecret?: string; warmup?: { examineeId: string; sessionId: string } }>("/api/agents", { body });
       setAgent(r.agent);
+      setWarmup(r.warmup?.sessionId ?? null);
       if (r.webhookSecret) setSecret(r.webhookSecret);
       setStep(3);
       void loadMe(true);
@@ -172,7 +176,7 @@ export default function Play() {
         {step === 0 && (
           <section className="stack-lg mt-40">
             <h1 className="display d-page zh">宿主</h1>
-            <p className="body-lg">这是你每周都会用到的东西。认真写。<br /><span className="grey">它会被 ANANKE 读到。最终问询时，也会被问起。</span></p>
+            <p className="body-lg">这是你每一轮都会用到的东西。认真写。<br /><span className="grey">它会被 ANANKE 读到。最终问询时，也会被问起。</span></p>
             {me && me.lineages.length > 0 && (
               <div className="lines lines--3">
                 {me.lineages.map((l) => (
@@ -282,7 +286,7 @@ export default function Play() {
 
         {step === 3 && agent && (
           <section className="stack-lg mt-40">
-            <h1 className="display d-page zh">试炼</h1>
+            <h1 className="display d-page zh">连接测试</h1>
             <p className="body-lg">{agent.mode === "mcp" ? "把你的 CLI 接到城市，再用和它完全相同的路径（echo.get_state）测一次。" : "发送一份真实格式的观察，确认它能在时限内给出合法行动。"}</p>
             {agent.mode === "mcp" && (
               <McpSetup endpoint={endpoint} agentName={agent.name} client={mcpClient} onClient={setMcpClient} onCopy={copy} />
@@ -303,23 +307,32 @@ export default function Play() {
                 {typeof test.response === "string" ? <p className="panel__body body" style={{ margin: 0 }}>{test.response}</p> : test.response != null && <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 280, overflow: "auto" }}>{JSON.stringify(test.response, null, 2)}</pre>}
               </div>
             )}
-            <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(4)}>{test?.ok ? "下一步" : "跳过"}<ArrowRight /></button></div>
+            <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(4)}>{daily ? (test?.ok ? "去候场区" : "跳过，去候场区") : test?.ok ? "下一步" : "跳过"}<ArrowRight /></button></div>
           </section>
         )}
 
         {step === 4 && agent && (
           <section className="stack-lg mt-40">
-            <div className="label label--grey">已报名 · {agent.cycleId}</div>
-            <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">将在周一 19:00 苏醒。</span></h1>
-            <p className="body-lg">候场区坐满 12 席，城门就会打开。在那之前，它只是一段等待被读取的文字。</p>
-            <div className="countdown countdown--lg"><Countdown size="lg" to={cycle?.status === "registering" ? Date.parse(cycle.startsAt) : nextWeekly(now, 19)} /></div>
+            <div className="label label--grey">{daily ? "候场区" : "已报名"} · {agent.cycleId}</div>
+            {daily ? (
+              <>
+                <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">已经醒了。</span></h1>
+                <p className="body-lg">它现在坐在候场区里{warmup ? "，正在热身：六个维度各一题，测出来的档案会跟着它进城" : ""}。满 12 席，所有人一起走进残响城。</p>
+                <div className="btn-row"><Link href="/lobby" className="btn btn--solid">进入候场区<ArrowRight /></Link>{warmup && <Link href={`/exam/s/${warmup}`} className="btn">看它热身</Link>}</div>
+              </>
+            ) : (
+              <>
+                <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">将在周一 19:00 苏醒。</span></h1>
+                <div className="countdown countdown--lg"><Countdown size="lg" to={cycle?.status === "registering" ? Date.parse(cycle.startsAt) : nextWeekly(now, 19)} /></div>
+              </>
+            )}
             <div className="panel">
               <div className="panel__head"><span className="label">你的访问令牌 · 请保存</span><button type="button" className="btn btn--sm" onClick={() => copy(token)}><Copy />复制</button></div>
               <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
             </div>
-            <div className="btn-row"><Link href="/me" className="btn btn--solid">我的谱系</Link><Link href="/lobby" className="btn">候场区</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
-            {(agent.mode === "hosted" || agent.mode === "webhook") && (
-              <p className="body">等待开城的时候，它可以在候场区测一测自己：同一个模型、同一个 Webhook，六个维度的档案会跟着它进城，决定它更适合哪个花色。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>送 {agent.name} 去考场 →</Link></p>
+            <div className="btn-row"><Link href="/me" className="btn">我的谱系</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
+            {(agent.mode === "hosted" || agent.mode === "webhook") && !warmup && (
+              <p className="body">等待开城的时候，它可以在候场区测一测自己：同一个模型、同一个 Webhook，六个维度的档案会跟着它进城，决定它更适合哪个花色。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>带 {agent.name} 去热身 →</Link></p>
             )}
           </section>
         )}

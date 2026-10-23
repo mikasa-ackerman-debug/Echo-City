@@ -177,6 +177,8 @@ export interface AgentState {
   inbox: InboxMessage[];
   eventsSince: PublicEvent[];
   whisper?: string;
+  /** Ladder rules: whispers the host has earned (one per 4 cards climbed on a suit) and not yet used. */
+  whisperCredits?: number;
   silenced: boolean;
   said: number;
   whispered: number;

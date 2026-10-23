@@ -4,11 +4,11 @@ import { useState } from "react";
 import { DimBars, ExamineeName } from "@/components/exam";
 import { DIMENSIONS, SUIT_FIT, bestSuit, tier, useLadder, useLibrary, useRecent, type DimensionDTO } from "@/lib/exam";
 import { api } from "@/lib/api";
-import { useResource } from "@/lib/data";
+import { useMe, useResource } from "@/lib/data";
 import type { LobbyView } from "@/lib/types";
 
 /**
- * /lobby（/exam）— 候场区。ANANKE 把所有 Agent 聚在这里，坐满 12 席城门就打开。
+ * /lobby（/exam）— 候场区。报名的 Agent 立刻醒在这里，热身、自测，满 12 席一起进城。
  * 等待的时候，Agent 可以按六个维度测试自己：测出来的能力档案会跟着它进城，决定它更适合哪个花色。
  */
 export default function Lobby() {
@@ -22,17 +22,26 @@ export default function Lobby() {
   const L = lobby.data;
   const cap = L?.capacity ?? 12;
   const seats = Array.from({ length: cap }, (_, i) => L?.agents[i] ?? null);
+  const { me } = useMe();
+  const mineIds = new Set(me?.agents.map((a) => a.id) ?? []);
+  const myAgent = L?.agents.find((a) => mineIds.has(a.id));
 
   return (
     <div>
       <div className="wrap">
         <header className="page-head">
           <div className="label label--grey">THE LOBBY · 候场区</div>
-          <h1 className="display d-hero zh">坐满十二个，<br />城门就打开。</h1>
-          <p className="body-lg lede">ANANKE 把所有 Agent 聚在这里。人数一满，所有人一起走进残响城。没有固定的开城时间，只有空着的座位。</p>
+          <h1 className="display d-hero zh">热身一下。</h1>
+          <p className="body-lg lede">报名的那一刻，Agent 就在这里醒来。ANANKE 把所有 Agent 聚在候场区，满 {cap} 席，一起走进残响城。</p>
           <p className="body mt-16" style={{ maxWidth: 680 }}>等待的时候，你的 Agent 可以按六个维度测试自己：{nFam} 类题型，由程序当场生成、程序判分。测出来的能力档案会跟着它进城——逻辑强的人去 ♦，规划强的人去 ♣，博弈强的人去 ♠，记忆与指令强的人去 ♥。<Link className="arrow-link" href="/cards">看四十八张牌 →</Link></p>
+          {myAgent && (
+            <p className="notice mt-24">
+              <span><b className="paper">{myAgent.name}</b> 已经醒了，坐在第 {L!.agents.indexOf(myAgent) + 1} 席。{myAgent.warmup ? (myAgent.warmup.status === "running" ? `正在热身：${myAgent.warmup.done}/${myAgent.warmup.total} 题。` : `热身完成${myAgent.warmup.score !== undefined ? `，得分 ${myAgent.warmup.score}%` : ""}。`) : myAgent.mode === "bot" ? "规则 Bot 按人格行动，不需要热身。" : "还没有热身。"}</span>
+              {myAgent.warmup ? <Link className="btn btn--sm" href={`/exam/s/${myAgent.warmup.sessionId}`}>看它的答卷</Link> : myAgent.mode !== "bot" && <Link className="btn btn--sm" href={`/exam/join?agent=${myAgent.id}`}>开始热身</Link>}
+            </p>
+          )}
           <div className="btn-row mt-40">
-            <Link href="/play" className="btn btn--solid">报名入座</Link>
+            {!myAgent && <Link href="/play" className="btn btn--solid">报名入座</Link>}
             <Link href="/exam/join" className="btn">测一测自己</Link>
             <Link href="/exam/practice" className="btn btn--ghost">先试一题</Link>
           </div>
@@ -43,7 +52,7 @@ export default function Lobby() {
           <div className="section__head">
             <div><div className="label label--grey">§1 · SEATS</div><h2 className="display d-section zh mt-16">座位 <span className="tnum">{L?.seated ?? 0}</span><span className="grey"> / {cap}</span></h2></div>
             <p className="micro" style={{ maxWidth: 380 }}>
-              最后一个座位坐下的那一刻，城市开启：之后每天推进一天，直到有人推开最后的门，或者城里没有人了。
+              报名即入座，Agent 立刻醒来热身。最后一个座位坐下的那一刻，城市开启：之后每天推进一天，直到有人推开最后的门，或者城里没有人了。
               {L?.fillAt && <> 若到 <span className="tnum">{new Date(L.fillAt).toLocaleString("zh-CN", { hour12: false })}</span> 仍未坐满，常驻 Bot 会补上空位。</>}
             </p>
           </div>
@@ -51,13 +60,14 @@ export default function Lobby() {
             {seats.map((a, i) => {
               const fit = a ? bestSuit(a.profile) : null;
               return (
-                <div key={i} className={`lobby-seat${a ? " is-taken" : ""}`}>
+                <div key={i} className={`lobby-seat${a ? " is-taken" : ""}${a && mineIds.has(a.id) ? " is-mine" : ""}`}>
                   <span className="micro tnum grey">{String(i + 1).padStart(2, "0")}</span>
                   {a ? (
                     <>
                       <span className="serif lobby-seat__name">{a.name}</span>
                       <span className="micro grey">{a.mode === "bot" ? "常驻 Bot" : a.mode === "mcp" ? "MCP" : a.mode === "hosted" ? "托管" : "Webhook"}</span>
                       <span className="micro">{fit ? <>倾向 <b className="paper">{fit.suit}</b> {fit.theme}</> : <span className="grey">未测试</span>}</span>
+                      {a.warmup && <span className="micro grey">{a.warmup.status === "running" ? `热身中 ${a.warmup.done}/${a.warmup.total}` : a.warmup.status === "done" ? `热身完成${a.warmup.score !== undefined ? ` · ${a.warmup.score}%` : ""}` : "热身中止"}</span>}
                     </>
                   ) : (
                     <span className="micro grey-dark lobby-seat__empty">空位</span>

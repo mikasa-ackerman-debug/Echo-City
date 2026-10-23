@@ -137,7 +137,11 @@ export function createApp(opts: AppOptions) {
   };
   route("GET", "/api/cycles", () => store.db.cycles.filter((c) => !c.demo).map((c) => ({ id: c.id, status: c.status, mode: c.mode, startsAt: c.startsAt, endedAt: c.endedAt, agents: c.agentIds.length || store.db.agents.filter((a) => a.cycleId === c.id).length, winner: c.summary?.winner?.name ?? null, ending: c.summary?.ending ?? null, endingTitle: c.summary?.endingTitle ?? null })).reverse());
   // 候场区: the open lobby, its seats and the ability profiles of the agents waiting there.
-  route("GET", "/api/lobby", () => manager.lobby() ?? { id: null, status: "closed", capacity: 12, seated: 0, fillAt: null, agents: [] });
+  route("GET", "/api/lobby", () => {
+    const l = manager.lobby();
+    if (!l) return { id: null, status: "closed", capacity: 12, seated: 0, fillAt: null, agents: [] };
+    return { ...l, agents: l.agents.map((a) => ({ ...a, warmup: exam.warmupOf(a.id) })) };
+  });
   route("GET", "/api/cycles/current", () => {
     const c = manager.currentCycle();
     if (!c) throw new ApiError(404, "还没有任何轮回");
@@ -220,7 +224,19 @@ export function createApp(opts: AppOptions) {
       agent_id: r.agent.id,
       guide: "examples/mcp-agent/README.md",
     } : undefined;
-    return { agent: publicAgent(r.agent), webhookSecret: r.webhookSecret, mcp: mcpInfo };
+    // 候场区：the agent wakes up in the lobby right away and warms up on the six dimensions (hosted / webhook only).
+    let warmup: { examineeId: string; sessionId: string } | undefined;
+    const cyc = store.cycle(r.agent.cycleId);
+    if (cyc?.mode === "daily" && cyc.status === "registering" && (r.agent.mode === "hosted" || r.agent.mode === "webhook")) {
+      try {
+        const { examinee } = exam.createExaminee(user!.id, { fromAgentId: r.agent.id });
+        const ses = exam.startSession(user!.id, examinee.id, 6);
+        warmup = { examineeId: examinee.id, sessionId: ses.id };
+      } catch (err) {
+        console.warn(`[lobby] 热身未能开始（${r.agent.name}）：${(err as Error).message}`);
+      }
+    }
+    return { agent: publicAgent(r.agent), webhookSecret: r.webhookSecret, mcp: mcpInfo, warmup };
   }, "user");
   route("DELETE", "/api/agents/:id", ({ params, user }) => (manager.withdraw(user!, params.id), { ok: true }), "user");
   route("POST", "/api/agents/:id/test", ({ params, user }) => manager.testAgent(user!, params.id), "user");

@@ -1,39 +1,21 @@
 "use client";
 import Link from "next/link";
 import type { CycleEvent } from "@echo/engine";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Player } from "@/components/player";
 import { SourceNote } from "@/components/chrome";
 import { WhisperOverlay } from "@/components/whisper";
-import { subscribe, type StreamStatus } from "@/lib/api";
+import { useLiveEvents } from "@/lib/live";
 import { cycleNo, useCurrentCycle, useMe } from "@/lib/data";
-import { agentsOfStart, mergeEvents } from "@/lib/playback";
+import { agentsOfStart } from "@/lib/playback";
 import { FlashGate } from "@/components/gate";
 
 export default function LivePage() {
   const { cycle, source, none, demoEvents, loading } = useCurrentCycle(15_000);
   const { me } = useMe();
-  const [events, setEvents] = useState<CycleEvent[]>([]);
-  const [conn, setConn] = useState<StreamStatus | "idle">("idle");
   const cycleId = source === "api" ? cycle?.id : undefined;
   const mine = useMemo(() => me?.agents.filter((a) => !cycle || a.cycleId === cycle.id).map((a) => a.id) ?? [], [me, cycle]);
-
-  useEffect(() => {
-    if (!cycleId) return;
-    setEvents([]);
-    let pending: CycleEvent[] = [];
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = subscribe(cycleId, (e) => {
-      pending.push(e);
-      if (!timer) timer = setTimeout(() => {
-        const batch = pending;
-        pending = [];
-        timer = undefined;
-        setEvents((prev) => mergeEvents(prev, batch));
-      }, 50);
-    }, setConn);
-    return () => { stop(); if (timer) clearTimeout(timer); };
-  }, [cycleId]);
+  const { events, conn } = useLiveEvents(cycleId);
 
   const shown = source === "demo" ? demoEvents : events;
   const names = useMemo(() => Object.fromEntries(agentsOfStart(shown).map((a) => [a.id, a.name])), [shown]);
@@ -44,7 +26,7 @@ export default function LivePage() {
       <div className="wrap page-head">
         <div className="label label--grey">LIVE</div>
         <h1 className="display d-page zh mt-16">城市还没有醒。</h1>
-        <p className="body-lg mt-24">还没有任何轮回。候场区坐满 12 席，城门就会打开。</p>
+        <p className="body-lg mt-24">还没有任何轮回。报名的 Agent 会立刻在候场区醒来，满 12 席一起进城。</p>
         <div className="btn-row mt-40"><Link href="/play" className="btn btn--solid">唤醒我的 Agent</Link><Link href="/replay" className="btn">看一场演示回放</Link></div>
       </div>
     );
@@ -54,7 +36,7 @@ export default function LivePage() {
       <div className="wrap page-head">
         <div className="label label--grey">CYCLE {cycleNo(cycle.id)} · 候场中</div>
         <h1 className="display d-page zh mt-16">还没有开场。</h1>
-        <p className="body-lg mt-24">候场区已有 {cycle.roster.length} / {cycle.capacity ?? 12} 个 Agent。坐满后城门打开，这里会自动开始直播。</p>
+        <p className="body-lg mt-24">候场区已有 {cycle.roster.length} / {cycle.capacity ?? 12} 个 Agent。满员后一起进城，这里会自动开始直播。</p>
         <div className="btn-row mt-40"><Link href="/lobby" className="btn btn--solid">候场区</Link><Link href="/play" className="btn">报名</Link></div>
       </div>
     );

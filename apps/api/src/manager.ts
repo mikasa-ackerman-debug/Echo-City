@@ -100,6 +100,8 @@ export class CycleManager {
   private running = new Map<string, AbortController>();
   private subs = new Map<string, Set<Subscriber>>();
   private windows = new Map<string, WhisperWindow>();
+  /** Ladder rules: whispers hosts have written, waiting for the next slot to be handed over (cycleId → agentId → text). */
+  private whisperQueue = new Map<string, Record<string, string>>();
   private live = new Map<string, CycleState>();
   /** MCP 待决观察注册表（进程内存，单实例约束见 registry.ts / R5）。 */
   readonly mcp = new MemoryObservationRegistry();
@@ -558,6 +560,13 @@ export class CycleManager {
   /* ---------------- whispers ---------------- */
 
   private openWhisperWindow(c: CycleRec, state: CycleState, agents: string[], signal: AbortSignal): Promise<Record<string, string>> {
+    if (state.config.mode === "ladder") {
+      // Ladder whispers are queued by hosts at any time and handed over after the next slot.
+      const q = this.whisperQueue.get(c.id) ?? {};
+      const out: Record<string, string> = {};
+      for (const id of agents) if (q[id] !== undefined) { out[id] = q[id]; delete q[id]; }
+      return Promise.resolve(out);
+    }
     const human = agents.filter((id) => this.store.agent(id)?.ownerId !== "system");
     const judgmentBreak = state.waiting.kind === "host" && state.waiting.label.startsWith("judgment-break-");
     const windowMs = c.demo ? Math.min(this.opts.whisperWindowMs * (judgmentBreak ? 2 : 1), judgmentBreak ? 60000 : 45000) : judgmentBreak && c.mode === "weekly" ? (this.opts.judgmentBreakMs ?? 10 * 60000) : this.opts.whisperWindowMs;
@@ -592,6 +601,14 @@ export class CycleManager {
   }
 
   whisperWindow(cycleId: string, user?: UserRec) {
+    const st = this.live.get(cycleId);
+    if (st?.config.mode === "ladder") {
+      const q = this.whisperQueue.get(cycleId) ?? {};
+      const mine = user ? st.order.filter((id) => this.store.agent(id)?.ownerId === user.id && st.agents[id].status === "alive") : [];
+      const credits = Object.fromEntries(mine.map((id) => [id, st.agents[id].whisperCredits ?? 0]));
+      const ready = mine.filter((id) => credits[id] > 0 || id in q);
+      return { open: ready.length > 0, rules: "ladder" as const, serverNow: this.now().toISOString(), night: st.night, agents: ready, submitted: ready.filter((id) => id in q), credits };
+    }
     const w = this.windows.get(cycleId);
     if (!w) return { open: false as const, serverNow: this.now().toISOString() };
     const mine = user ? w.agents.filter((id) => this.store.agent(id)?.ownerId === user.id) : [];
@@ -599,6 +616,19 @@ export class CycleManager {
   }
 
   submitWhisper(user: UserRec, cycleId: string, agentId: string, text: string) {
+    const st = this.live.get(cycleId);
+    if (st?.config.mode === "ladder") {
+      const a = this.store.agent(agentId);
+      if (!a || a.ownerId !== user.id || !st.agents[agentId] || st.agents[agentId].status !== "alive") throw new ApiError(403, "你不能对这个 Agent 低语");
+      const q = this.whisperQueue.get(cycleId) ?? {};
+      if (agentId in q) throw new ApiError(409, "这句低语还没送到，它会在下一场之前听见");
+      if ((st.agents[agentId].whisperCredits ?? 0) <= 0) throw new ApiError(409, "还没有可用的低语：它每在一个花色上走过 4 张牌，你才能说一句");
+      const v = validateWhisper(text, st);
+      if (!v.ok) throw new ApiError(400, v.reason);
+      q[agentId] = v.text;
+      this.whisperQueue.set(cycleId, q);
+      return { ok: true, text: v.text, queued: true };
+    }
     const w = this.windows.get(cycleId);
     if (!w) throw new ApiError(409, "宿主低语窗口未开放");
     const a = this.store.agent(agentId);

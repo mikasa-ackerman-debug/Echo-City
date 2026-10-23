@@ -763,8 +763,10 @@ function consume(k: K, input: CycleInput) {
       const raw = input.whispers?.[id];
       const a = s.agents[id];
       if (!a || a.status !== "alive") continue;
+      const ladder = s.config.mode === "ladder";
       if (raw === undefined || raw === null || raw === "") {
-        k.emit("host_silent", { agent: a.name }, { vis: "after_night", owners: [id] });
+        // Ladder whispers are optional and kept for later; silence is not an event there.
+        if (!ladder) k.emit("host_silent", { agent: a.name }, { vis: "after_night", owners: [id] });
         continue;
       }
       const v = validateWhisper(raw, s);
@@ -773,7 +775,11 @@ function consume(k: K, input: CycleInput) {
         continue;
       }
       a.whisper = v.text;
-      k.emit("host_whisper", { agent: a.name, host: a.host.name, text: v.text }, { vis: "after_night", owners: [id] });
+      if (ladder) {
+        // Earned in public, spoken in public: spectators can read every host's whisper.
+        a.whisperCredits = Math.max(0, (a.whisperCredits ?? 0) - 1);
+        k.emit("host_whisper", { agent: a.name, id, host: a.host.name, text: v.text, credits: a.whisperCredits }, { vis: "public", text: `${a.host.name} 对 ${a.name} 说：「${v.text}」` });
+      } else k.emit("host_whisper", { agent: a.name, host: a.host.name, text: v.text }, { vis: "after_night", owners: [id] });
     }
     return; // stageWhisper notices the consumed label and advances
   }

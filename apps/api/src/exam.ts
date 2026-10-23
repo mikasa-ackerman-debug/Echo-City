@@ -451,6 +451,15 @@ export class ExamService {
     return Object.fromEntries(this.library().flatMap((d) => d.families.map((f) => [f.id, f.frontier])));
   }
 
+  /** 候场区: the latest self-test of a game agent (warm-up progress shown on its seat). */
+  warmupOf(agentId: string): { sessionId: string; status: SessionRec["status"]; done: number; total: number; score?: number } | null {
+    const e = this.db.examinees.find((x) => x.agentId === agentId);
+    if (!e) return null;
+    const s = [...this.db.sessions].reverse().find((x) => x.examineeId === e.id);
+    if (!s) return null;
+    return { sessionId: s.id, status: s.status, done: s.attempts.filter((a) => a.score !== undefined).length, total: s.attempts.length, score: s.score };
+  }
+
   /**
    * 候场区 ability profile for a game agent: the ratings of the examinee imported from it
    * (or, failing that, from the same lineage). Only dimensions that were actually tested are returned.

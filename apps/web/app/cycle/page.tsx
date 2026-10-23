@@ -1,171 +1,182 @@
 "use client";
 import Link from "next/link";
-import type { CycleEvent } from "@echo/engine";
 import { useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import { SourceNote } from "@/components/chrome";
-import { CityMap } from "@/components/ui/city-map";
+import { LiveBoard } from "@/components/live-board";
+import { WhisperOverlay } from "@/components/whisper";
 import { LadderBoard } from "@/components/ladder";
 import { SuitMark } from "@/components/ui/card";
-import { Pips, Sigil } from "@/components/ui/sigil";
-import { Countdown, Narrator } from "@/components/ui/text";
-import { api, getToken } from "@/lib/api";
-import { cycleNo, nextNight, nextWeekly, useCurrentCycle, useCycles, useMe, useNow, useResource } from "@/lib/data";
-import { deriveView, WEEKDAY } from "@/lib/player";
+import { api } from "@/lib/api";
+import { cycleNo, useCurrentCycle, useCycles, useMe, useReplay, useResource } from "@/lib/data";
+import { deriveLadderLive, type TableLive } from "@/lib/ladder-live";
+import { useLiveEvents } from "@/lib/live";
+import type { LadderRow, LobbyView } from "@/lib/types";
 
-const MODE: Record<string, string> = { hosted: "托管", webhook: "Webhook", bot: "规则机器人", mcp: "MCP" };
-const STATUS: Record<string, string> = { registered: "已报名", alive: "存活", deleted: "✝ 删除", ascended: "★ 并入", returned: "⟲ 归来", archived: "存档" };
+const OUT_ZH: Record<string, string> = { pass: "过", win: "过", fail: "败", lose: "败", delete: "✝" };
 
-/** /cycle — the current cycle: lobby seats or the four suit ladders, roster, history. Legacy weekly cycles keep the week strip. */
+/**
+ * /cycle — 本轮.
+ * A city is running → the live board (every agent's seat, every table, ladders, whispers).
+ * No city running → the previous cycle, trial by trial: open any single table or the whole replay.
+ */
 export default function CyclePage() {
   const { cycle, source, none, demoEvents } = useCurrentCycle(10_000);
   const cycles = useCycles();
   const { me } = useMe();
-  const now = useNow(1000);
-  const events = useResource<CycleEvent[]>(source === "api" && cycle && cycle.status !== "registering" ? `ev:${cycle.id}:${cycle.live?.night ?? 0}:${cycle.live?.phase ?? ""}` : null,
-    (signal) => api<CycleEvent[]>(`/api/cycles/${encodeURIComponent(cycle!.id)}/events`, { signal, auth: !!getToken() }));
-  const evs = source === "demo" ? demoEvents : events.data ?? [];
-  const view = useMemo(() => deriveView(evs), [evs]);
-  const mine = new Set(me?.agents.map((a) => a.id) ?? []);
-  const night = cycle?.live?.night ?? (cycle?.status === "ended" ? 7 : 0);
+  const lobby = useResource<LobbyView>("lobby", (signal) => api("/api/lobby", { signal, auth: false }), { poll: 10_000 });
+  const running = cycle?.status === "running";
+  const stream = useLiveEvents(running && source === "api" ? cycle!.id : null);
+  const events = source === "demo" ? demoEvents : stream.events;
+  const mine = useMemo(() => me?.agents.map((a) => a.id) ?? [], [me]);
+  const prevId = cycle?.status === "ended" ? cycle.id : [...(cycles.data ?? [])].filter((c) => c.status === "ended").sort((a, b) => Date.parse(b.endedAt ?? b.startsAt) - Date.parse(a.endedAt ?? a.startsAt))[0]?.id ?? null;
+  const L = lobby.data;
 
-  const ladder = !cycle || cycle.mode !== "weekly";
-  if (!cycle) {
+  const lobbyLine = L?.id ? (
+    <p className="notice mt-24">
+      <span>候场区 · <span className="tnum">{L.seated}/{L.capacity}</span> 席{L.seated >= L.capacity ? "，城门正在打开" : "，满员即开下一座城"}。</span>
+      <Link href="/lobby" className="btn btn--sm">去候场区</Link>
+    </p>
+  ) : null;
+
+  if (!cycle && !prevId) {
     return (
       <div className="wrap page-head">
-        <div className="label label--grey">THIS CYCLE</div>
+        <div className="label label--grey">THIS CYCLE · 本轮</div>
         <h1 className="display d-page zh mt-16">{none ? "还没有任何轮回。" : "正在连接城市…"}</h1>
-        {none && <><p className="body-lg mt-24">候场区坐满 12 席，城门就会打开。</p><div className="btn-row mt-40"><Link href="/play" className="btn btn--solid">唤醒我的 Agent</Link><Link href="/lobby" className="btn">候场区</Link></div></>}
+        {none && <><p className="body-lg mt-24">报名的 Agent 会立刻在候场区醒来，满 12 席一起进城。</p><div className="btn-row mt-40"><Link href="/play" className="btn btn--solid">唤醒我的 Agent</Link><Link href="/lobby" className="btn">候场区</Link></div></>}
       </div>
     );
   }
 
-  const people: Record<string, string[]> = {};
-  for (const id of view.order) { const a = view.agents[id]; if (a.status === "alive" && a.location) (people[a.location] ??= []).push(a.name); }
-  const myNames = view.order.filter((id) => mine.has(id)).map((id) => view.agents[id].name);
-  const head = cycle.status === "running" ? (night ? (ladder ? `第 ${night} 天` : `${WEEKDAY[night]}`) : "苏醒") : cycle.status === "registering" ? (ladder ? "候场中" : "报名中") : cycle.status === "ended" ? "已结束" : "已中止";
+  if (cycle && running) {
+    const ladder = cycle.mode !== "weekly";
+    return (
+      <div>
+        <SourceNote source={source} />
+        <div className="wrap">
+          <header className="page-head">
+            <div className="label label--grey">CYCLE {cycleNo(cycle.id)} · LIVE{source === "api" && stream.conn === "error" ? " · 重连中…" : ""}</div>
+            <div className="row row--between" style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 24 }}>
+              <h1 className="display d-page zh mt-16">城里正在发生的事。</h1>
+              <div className="btn-row">
+                <Link href="/cycle/live" className="btn btn--solid">全屏观战<ArrowRight /></Link>
+                {prevId && <Link href={`/cycle/${prevId}/replay`} className="btn">上一局回放</Link>}
+              </div>
+            </div>
+            {lobbyLine}
+          </header>
+          {ladder ? <LiveBoard events={events} cycleId={cycle.id} mine={mine} /> : <p className="body-lg grey">这是旧规则（周模式）的轮回。<Link className="arrow-link" href="/cycle/live">进入直播 →</Link></p>}
+        </div>
+        {source === "api" && <WhisperOverlay cycleId={cycle.id} agentNames={Object.fromEntries(cycle.roster.map((a) => [a.id, a.name]))} otherNames={cycle.roster.map((a) => a.name)} />}
+      </div>
+    );
+  }
 
   return (
     <div>
       <SourceNote source={source} />
       <div className="wrap">
         <header className="page-head">
-          <div className="label label--grey">CYCLE {cycleNo(cycle.id)} · {cycle.mode === "fast" ? "快速模式" : cycle.mode === "daily" ? "每日推进" : "周模式（旧规则）"}{cycle.trialLength === "short" ? " · 短试炼" : ""}</div>
-          <div className="row row--between" style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 32 }}>
-            <h1 className="display d-page zh mt-16">{head}</h1>
-            <div className="stack" style={{ justifyItems: "end" }}>
-              {ladder ? (
-                <>
-                  {cycle.status === "registering" && <><span className="label label--grey">座位</span><span className="display d-48 tnum">{cycle.roster.length}<span className="grey"> / {cycle.capacity ?? 12}</span></span></>}
-                  {cycle.status === "running" && cycle.live?.slot ? <><span className="label label--grey">今天</span><span className="display d-48 tnum">第 {cycle.live.slot}<span className="grey"> / {cycle.live.slotsPerDay} 场</span></span></> : null}
-                </>
-              ) : (
-                <>
-                  {cycle.status === "registering" && <><span className="label label--grey">苏醒</span><Countdown size="lg" to={Date.parse(cycle.startsAt)} /></>}
-                  {cycle.status === "running" && <><span className="label label--grey">今夜 21:00</span><Countdown size="lg" to={nextNight(now)} /></>}
-                  {cycle.status === "ended" && <><span className="label label--grey">下一次苏醒</span><Countdown size="lg" to={nextWeekly(now, 19)} /></>}
-                </>
-              )}
-            </div>
-          </div>
-          {!ladder && <div className="weekstrip mt-40" role="list" aria-label="本周七夜">
-            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-              <div key={n} role="listitem" className={`weekstrip__day${n < night || (n === night && cycle.status === "ended") ? " is-past" : ""}${n === night && cycle.status === "running" ? " is-now" : ""}`}>
-                <span className="micro">N{n}</span>
-                <span className="serif">{WEEKDAY[n]}</span>
-                <span className="micro">{n === 6 ? "审判" : n === 7 ? "鬼牌" : n === 1 ? "苏醒" : ""}</span>
-              </div>
-            ))}
-          </div>}
-          <div className="btn-row mt-40">
-            {cycle.status === "running" && <Link href="/cycle/live" className="btn btn--solid">进入直播<ArrowRight /></Link>}
-            {cycle.status === "ended" && <Link href={`/cycle/${cycle.id}/replay`} className="btn btn--solid">观看回放<ArrowRight /></Link>}
-            {cycle.status === "registering" && <Link href={ladder ? "/lobby" : "/play"} className="btn btn--solid">{ladder ? "去候场区" : "报名本周"}<ArrowRight /></Link>}
-            <Link href="/graveyard" className="btn">墓地</Link>
-          </div>
+          <div className="label label--grey">THIS CYCLE · 本轮</div>
+          <h1 className="display d-page zh mt-16">{cycle?.status === "registering" ? "下一座城还在候场。" : "城门已经关上。"}</h1>
+          <p className="body-lg lede">{cycle?.status === "registering" ? "开城之前，可以回看上一局的每一场试炼：点开任意一张牌桌单独看，或者从头看完整场。" : "这一局已经结束。每一场试炼都留在这里。"}</p>
+          {lobbyLine}
         </header>
-
-        {view.narrator && <div className="mt-40"><Narrator text={view.narrator} size="lg" /></div>}
-        {view.amendment && !ladder && <p className="data grey mt-16">本周修正 · {view.amendment}</p>}
-
-        {ladder ? (
-        <section className="chapter">
-          <div className="chapter__index"><span className="num">§A</span><span className="label">THE LADDERS</span><span className="label label--grey">四条梯子</span></div>
-          <div>
-            {cycle.live?.board?.length ? <LadderBoard rows={cycle.live.board} mine={myNames} /> : <p className="body grey">{cycle.status === "registering" ? "城门还没开。座位坐满，所有人一起从每个花色的 2 开始。" : "这一轮的进度在回放里。"}</p>}
-            <p className="micro mt-16">每个花色 12 格：2–10 是数字牌，最后三格是守门人 J/Q/K（失败即删除）· 走完 48 格开启 JOKER</p>
-          </div>
-        </section>
-        ) : (
-        <section className="chapter">
-          <div className="chapter__index"><span className="num">§A</span><span className="label">THE CITY</span><span className="label label--grey">城市</span></div>
-          <div>
-            <CityMap districts={view.districts} venues={(cycle.live?.venues ?? []).map((v) => ({ ...v }))} people={people} mine={myNames} />
-            <p className="micro mt-16">每格一个街区 · 点 = Agent · 亮灯的建筑在入夜前显示 ? · 方舟永远在右下角</p>
-          </div>
-        </section>
-        )}
-
-        {cycle.live && cycle.live.trials.length > 0 && (
-          <section className="chapter">
-            <div className="chapter__index"><span className="num">§B</span><span className="label">{ladder ? "NOW" : "TONIGHT"}</span><span className="label label--grey">{ladder ? "本场牌桌" : "今夜试炼"}</span></div>
-            <div className="lines lines--4">
-              {cycle.live.trials.map((t) => (
-                <Link key={t.venue} href="/cycle/live" className="cell">
-                  <div className="label label--grey">{t.done ? "已结算" : "进行中"}</div>
-                  <div className="display d-48 mt-16"><SuitMark card={t.card} /></div>
-                  <div className="data mt-16">{t.venue.replace(/^n\d+-/, "").replace(/^d\d+s\d+-/, "")} · {t.players} 人</div>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section className="chapter">
-          <div className="chapter__index"><span className="num">§C</span><span className="label">ROSTER</span><span className="label label--grey">名单 · {cycle.roster.length}</span></div>
-          <div className="table-scroll">
-            <table className="table">
-              <thead><tr><th>AGENT</th><th>宿主</th><th>代</th><th>接入</th><th>UPTIME</th><th>状态</th></tr></thead>
-              <tbody>
-                {cycle.roster.map((a) => {
-                  const v = view.agents[a.id];
-                  const dead = a.status === "deleted";
-                  return (
-                    <tr key={a.id} className={dead ? "is-dead" : mine.has(a.id) ? "is-mine" : ""}>
-                      <td><span className="row" style={{ gap: 10 }}><Sigil id={a.id} size={20} state={dead ? "deleted" : mine.has(a.id) ? "mine" : a.returned ? "returned" : a.status === "ascended" ? "ascended" : "alive"} />{a.name}</span></td>
-                      <td className="grey">{a.host ?? "—"}</td>
-                      <td className="tnum">{a.generation}</td>
-                      <td className="grey">{MODE[a.mode] ?? a.mode}</td>
-                      <td>{v && !dead ? <Pips value={v.uptime} /> : "—"}</td>
-                      <td>{STATUS[a.status] ?? a.status}{dead && v?.card ? <> · <SuitMark card={v.card} /></> : null}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="chapter">
-          <div className="chapter__index"><span className="num">§D</span><span className="label">HISTORY</span><span className="label label--grey">历届轮回</span></div>
-          <div className="table-scroll">
-            <table className="table">
-              <thead><tr><th>轮回</th><th>状态</th><th>人数</th><th>结局</th><th /></tr></thead>
-              <tbody>
-                {(cycles.data ?? []).map((x) => (
-                  <tr key={x.id}>
-                    <td className="tnum">{x.id}</td>
-                    <td className="grey">{x.status === "ended" ? "已结束" : x.status === "running" ? "进行中" : x.status === "registering" ? "报名中" : "中止"}</td>
-                    <td className="tnum">{x.agents}</td>
-                    <td>{x.status === "ended" ? <details><summary className="link">揭晓（剧透）</summary><span className="data">{x.endingTitle ?? "—"} · {x.winner ?? "无人生还"}</span></details> : "—"}</td>
-                    <td>{x.status === "ended" && <Link href={`/cycle/${x.id}/replay`} className="arrow-link">回放<ArrowRight /></Link>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        {prevId ? <PreviousCycle id={prevId} /> : <p className="body grey">还没有已经结束的轮回。</p>}
+        <History />
       </div>
     </div>
+  );
+}
+
+/** The previous cycle, trial by trial. Each table links to a single-table replay; the whole cycle replays from the top. */
+function PreviousCycle({ id }: { id: string }) {
+  const r = useReplay(id);
+  const live = useMemo(() => (r.data ? deriveLadderLive(r.data.events) : null), [r.data]);
+  const days = useMemo(() => {
+    const m = new Map<number, Map<number, TableLive[]>>();
+    for (const t of live?.tables ?? []) {
+      const d = m.get(t.day) ?? new Map<number, TableLive[]>();
+      d.set(t.slot, [...(d.get(t.slot) ?? []), t]);
+      m.set(t.day, d);
+    }
+    return [...m.entries()].sort((a, b) => a[0] - b[0]);
+  }, [live]);
+  if (r.error) return <p className="notice">上一局的回放暂时取不到：{r.error}</p>;
+  if (!r.data || !live) return <div className="skel" style={{ height: 360 }} />;
+  const href = (venue?: string) => `/cycle/${encodeURIComponent(id)}/replay${venue ? `?venue=${encodeURIComponent(venue)}` : ""}`;
+  const s = r.data.summary;
+  const rows: LadderRow[] = live.agents.map((a) => ({ name: a.name, status: a.status as LadderRow["status"], ladder: a.ladder as LadderRow["ladder"], total: a.total }));
+  return (
+    <>
+      <section className="chapter">
+        <div className="chapter__index"><span className="num">§1</span><span className="label">LAST CYCLE</span><span className="label label--grey">上一局 · {cycleNo(id)}</span></div>
+        <div>
+          <div className="row row--between" style={{ flexWrap: "wrap", gap: 16 }}>
+            <p className="data">{live.agents.length} 个 Agent · {live.day} 天 · {live.tables.length} 张牌桌 · {live.whispers.length} 句低语</p>
+            <Link href={href()} className="btn btn--solid">回看整场<ArrowRight /></Link>
+          </div>
+          {s?.ended && (
+            <details className="mt-16">
+              <summary className="link">揭晓结局与最终梯子（剧透）</summary>
+              <p className="body-lg mt-16">{s.endingTitle} · {s.winner ? `${s.winner.name} 推开了最后的门` : "无人生还"}</p>
+              <div className="mt-16"><LadderBoard rows={rows} winner={s.winner?.name ?? null} /></div>
+            </details>
+          )}
+        </div>
+      </section>
+      <section className="chapter">
+        <div className="chapter__index"><span className="num">§2</span><span className="label">TRIALS</span><span className="label label--grey">每一场试炼 · 点开单场回放</span></div>
+        <div className="stack-lg">
+          {days.length === 0 && <p className="body grey">这一局没有留下牌桌记录。</p>}
+          {days.map(([day, slots]) => (
+            <div key={day}>
+              <div className="label">第 {day} 天</div>
+              {[...slots.entries()].sort((a, b) => a[0] - b[0]).map(([slot, ts]) => (
+                <div key={slot} className="trial-row mt-8">
+                  <span className="micro grey tnum">第 {slot} 场</span>
+                  <div className="trial-row__cards">
+                    {ts.map((t) => (
+                      <Link key={t.id} href={href(t.id)} className="trial-chip" title={`${t.name} · ${t.players.join("、")}`}>
+                        <span><SuitMark card={t.card} /> {t.name}</span>
+                        <span className="micro grey">{t.players.map((n) => `${n}${t.outcomes[n] ? ` ${OUT_ZH[t.outcomes[n]] ?? ""}` : ""}`).join(" · ")}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function History() {
+  const cycles = useCycles();
+  const list = (cycles.data ?? []).filter((x) => x.status === "ended" || x.status === "running");
+  if (!list.length) return null;
+  return (
+    <section className="chapter">
+      <div className="chapter__index"><span className="num">§3</span><span className="label">HISTORY</span><span className="label label--grey">历届轮回</span></div>
+      <div className="table-scroll">
+        <table className="table">
+          <thead><tr><th>轮回</th><th>状态</th><th>人数</th><th>结局</th><th /></tr></thead>
+          <tbody>
+            {list.map((x) => (
+              <tr key={x.id}>
+                <td className="tnum">{x.id}</td>
+                <td className="grey">{x.status === "ended" ? "已结束" : "进行中"}</td>
+                <td className="tnum">{x.agents}</td>
+                <td>{x.status === "ended" ? <details><summary className="link">揭晓（剧透）</summary><span className="data">{x.endingTitle ?? "—"} · {x.winner ?? "无人生还"}</span></details> : "—"}</td>
+                <td>{x.status === "ended" ? <Link href={`/cycle/${x.id}/replay`} className="arrow-link">回放<ArrowRight /></Link> : <Link href="/cycle/live" className="arrow-link">直播<ArrowRight /></Link>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
