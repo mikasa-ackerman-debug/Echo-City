@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react";
 import { deriveLadderLive, type AgentLive, type TableLive } from "@/lib/ladder-live";
 import { deriveView } from "@/lib/player";
 import { LADDER_SUITS, Pips, SUIT_THEME } from "./ladder";
+import { DeckStatus } from "./deck-status";
 import { Stage } from "./stage";
 import { SuitMark } from "./ui/card";
 import { Pips as UptimePips, Sigil } from "./ui/sigil";
@@ -71,9 +72,15 @@ export function LiveBoard({ events, cycleId, mine = [] }: { events: CycleEvent[]
         </div>
       </section>
 
+      {/* ---------- the city's deck ---------- */}
+      <section className="chapter">
+        <div className="chapter__index"><span className="num">§2</span><span className="label">DECK</span><span className="label label--grey">本轮牌库 · 完成即打叉</span></div>
+        <DeckStatus agents={live.agents} mine={mine} />
+      </section>
+
       {/* ---------- every agent ---------- */}
       <section className="chapter">
-        <div className="chapter__index"><span className="num">§2</span><span className="label">AGENTS</span><span className="label label--grey">位置 · 选择 · 表现</span></div>
+        <div className="chapter__index"><span className="num">§3</span><span className="label">AGENTS</span><span className="label label--grey">位置 · 选择 · 表现</span></div>
         <div className="table-scroll">
           <table className="table live-agents">
             <thead>
@@ -107,7 +114,7 @@ export function LiveBoard({ events, cycleId, mine = [] }: { events: CycleEvent[]
 
       {/* ---------- whispers ---------- */}
       <section className="chapter">
-        <div className="chapter__index"><span className="num">§3</span><span className="label">WHISPERS</span><span className="label label--grey">宿主低语 · {live.whispers.length}</span></div>
+        <div className="chapter__index"><span className="num">§4</span><span className="label">WHISPERS</span><span className="label label--grey">宿主低语 · {live.whispers.length}</span></div>
         <div>
           <p className="micro">每个花色每走过 4 张牌，宿主可以（不是必须）对它说一句话。说出的话所有人都能看见。</p>
           {live.whispers.length ? (
@@ -126,7 +133,7 @@ export function LiveBoard({ events, cycleId, mine = [] }: { events: CycleEvent[]
 
       {/* ---------- feed ---------- */}
       <section className="chapter">
-        <div className="chapter__index"><span className="num">§4</span><span className="label">FEED</span><span className="label label--grey">城里刚刚发生的事</span></div>
+        <div className="chapter__index"><span className="num">§5</span><span className="label">FEED</span><span className="label label--grey">城里刚刚发生的事</span></div>
         <ol className="live-feed">
           {[...live.feed].reverse().slice(0, 30).map((e) => <li key={e.seq}><span className="micro grey tnum">D{e.night}</span> {e.text}</li>)}
         </ol>

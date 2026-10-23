@@ -8,7 +8,6 @@ import { cycleNo, nextNight, nextWeekly, useCurrentCycle, useMe, useNow } from "
 import { FATE_GLYPH, useMyAgent } from "@/lib/my-agent";
 import { WEEKDAY } from "@/lib/player";
 import { useApp } from "@/lib/store";
-import { exitDemo, useDemo } from "@/lib/demo-mode";
 import { AnankeMark } from "./ui/sigil";
 import { Countdown } from "./ui/text";
 
@@ -190,15 +189,3 @@ export function SourceNote({ source, what = "演示数据" }: { source: "api" | 
   return <div className="source-note"><b>DEMO</b><span>城市离线 · 未连接 <code>apps/api</code>，正在展示{what}。运行 <code>npm run api</code> 后自动切换为真实数据。</span></div>;
 }
 
-/** Shown on every page while the admin demo backdoor is active (see /demo). */
-export function DemoBanner() {
-  const demo = useDemo();
-  if (!demo) return null;
-  return (
-    <div className="notice notice--ananke" role="status" style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", justifyContent: "center", margin: 0, borderRadius: 0 }}>
-      <span>演示模式 · <span className="tnum">{demo.cycleId}</span> · 本浏览器正在使用临时演示身份</span>
-      <Link className="link" href="/demo">演示控制台</Link>
-      <button type="button" className="btn btn--sm btn--ghost" onClick={exitDemo}>退出演示</button>
-    </div>
-  );
-}

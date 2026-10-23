@@ -221,6 +221,18 @@ export class CycleManager {
     return this.start(cycleId);
   }
 
+  /** 全局模拟 → 还原: stop a demo city for good (it is never resumed) and archive its agents. */
+  stopDemo(cycleId: string): CycleRec {
+    const c = this.store.cycle(cycleId);
+    if (!c?.demo) throw new ApiError(404, "演示轮回不存在");
+    if (c.status === "ended" || c.status === "aborted") return c;
+    this.running.get(c.id)?.abort();
+    this.running.delete(c.id);
+    this.whisperQueue.delete(c.id);
+    this.abortCycle(c);
+    return c;
+  }
+
   isDemo(cycleId: string | undefined): boolean {
     return !!cycleId && !!this.store.cycle(cycleId)?.demo;
   }

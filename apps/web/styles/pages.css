@@ -334,3 +334,32 @@ code { font-family: var(--mono); font-size: .92em; color: var(--paper); }
 .trial-row__cards { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); }
 .trial-chip { display: flex; flex-direction: column; gap: 4px; min-width: 180px; flex: 1 1 180px; padding: 10px 12px; background: var(--ink); color: inherit; text-decoration: none; }
 .trial-chip:hover { background: var(--ink-raised); }
+
+/* ---------------- 本轮全局牌库 ---------------- */
+.deck-status { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.deck-status__row { display: grid; grid-template-columns: 96px repeat(12, minmax(0, 1fr)); gap: 1px; }
+.deck-status__suit { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 10px 12px; background: var(--ink); }
+.deck-card { position: relative; display: flex; flex-direction: column; gap: 4px; min-height: 76px; padding: 8px; background: var(--ink); overflow: hidden; }
+.deck-card__rank { font-family: var(--mono); font-size: 13px; color: var(--paper); }
+.deck-card__name { font-size: 11px; line-height: 1.3; color: var(--paper-dim); }
+.deck-card__count { margin-top: auto; color: var(--grey); }
+.deck-card.is-face { outline: 1px solid var(--line-strong); outline-offset: -1px; }
+.deck-card.is-next { background: var(--ink-raised); outline: 1px solid var(--paper); outline-offset: -1px; }
+.deck-card.is-done .deck-card__rank, .deck-card.is-done .deck-card__name { color: var(--grey-dark); text-decoration: line-through; }
+.deck-card.is-done::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to top right, transparent calc(50% - .5px), var(--line-strong) 50%, transparent calc(50% + .5px)),
+              linear-gradient(to top left, transparent calc(50% - .5px), var(--line-strong) 50%, transparent calc(50% + .5px)); }
+.deck-card--joker { grid-column: span 12; min-height: 56px; }
+@media (max-width: 1100px) { .deck-status { overflow-x: auto; } .deck-status__row { min-width: 980px; } }
+
+/* ---------------- 全局模拟 (developer, bottom) ---------------- */
+.sim-banner { position: sticky; bottom: 0; z-index: 50; background: var(--ink); border-top: 1px solid var(--line-strong); }
+.sim-banner.is-on { border-top-color: var(--ananke); }
+.sim-banner__bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 24px; }
+.sim-banner__title { display: inline-flex; align-items: center; background: none; border: 0; color: var(--paper); font: 500 12px/1.4 var(--mono); letter-spacing: .08em; cursor: pointer; padding: 0; }
+.sim-banner__status { flex: 1; min-width: 0; }
+.sim-banner__actions { display: inline-flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.sim-banner__panel { padding: 0 24px 16px; }
+.sim-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; color: var(--grey); }
+.sim-steps .is-now { color: var(--paper); }
+.sim-steps .is-done { text-decoration: line-through; }

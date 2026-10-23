@@ -137,8 +137,10 @@ export function createApp(opts: AppOptions) {
   };
   route("GET", "/api/cycles", () => store.db.cycles.filter((c) => !c.demo).map((c) => ({ id: c.id, status: c.status, mode: c.mode, startsAt: c.startsAt, endedAt: c.endedAt, agents: c.agentIds.length || store.db.agents.filter((a) => a.cycleId === c.id).length, winner: c.summary?.winner?.name ?? null, ending: c.summary?.ending ?? null, endingTitle: c.summary?.endingTitle ?? null })).reverse());
   // 候场区: the open lobby, its seats and the ability profiles of the agents waiting there.
-  route("GET", "/api/lobby", () => {
-    const l = manager.lobby();
+  route("GET", "/api/lobby", ({ query }) => {
+    // ?cycle= lets the 全局模拟 (demo) browser look at its own private lobby; public callers get the open one.
+    const want = query.get("cycle");
+    const l = manager.lobby(want && manager.isDemo(want) ? want : undefined);
     if (!l) return { id: null, status: "closed", capacity: 12, seated: 0, fillAt: null, agents: [] };
     return { ...l, agents: l.agents.map((a) => ({ ...a, warmup: exam.warmupOf(a.id) })) };
   });
@@ -153,6 +155,7 @@ export function createApp(opts: AppOptions) {
   // Admin demo backdoor: a private compressed week (own agent + mock bots), hidden from public lists.
   route("POST", "/api/demo/cycles", ({ body }) => publicData(manager.createDemoCycle({ speed: Number(body?.speed), fillBots: Number(body?.fillBots) })), "admin");
   route("POST", "/api/demo/cycles/:id/start", ({ params }) => publicData(manager.startDemo(params.id)), "admin");
+  route("POST", "/api/demo/cycles/:id/stop", ({ params }) => publicData(manager.stopDemo(params.id)), "admin");
   route("GET", "/api/cycles/:id/events", ({ params, query, user }) => {
     if (!store.cycle(params.id)) throw new ApiError(404, "轮回不存在");
     return publicData(manager.visibleEvents(params.id, user, parseCursor(query.get("since"))));

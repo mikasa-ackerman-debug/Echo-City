@@ -66,6 +66,27 @@ describe("admin demo backdoor", () => {
     expect((await api("GET", `/api/cycles/${demo.id}/replay`)).status).toBe(200);
   }, 90000);
 
+  it("全局模拟: the private lobby is visible by id, and 还原 stops the simulated city for good", async () => {
+    const pub = (await api("POST", "/api/cycles", { mode: "daily" }, admin)).json;
+    const demo = (await api("POST", "/api/demo/cycles", { speed: 2880, fillBots: 12 }, admin)).json;
+    const u = (await api("POST", "/api/users", { name: "sim" })).json.token;
+    await api("POST", "/api/agents", { name: "Sim", mode: "bot", bot: { persona: "diplomat" }, host, cycleId: demo.id }, { authorization: `Bearer ${u}` });
+    expect((await api("GET", "/api/lobby")).json.id).toBe(pub.id);
+    const dl = (await api("GET", `/api/lobby?cycle=${demo.id}`)).json;
+    expect(dl.id).toBe(demo.id);
+    expect(dl.seated).toBe(1);
+    expect((await api("GET", `/api/lobby?cycle=${pub.id}x`)).json.id).toBe(pub.id);
+    expect((await api("POST", `/api/demo/cycles/${demo.id}/start`, {}, admin)).json.agentIds).toHaveLength(12);
+    expect((await api("POST", `/api/demo/cycles/${demo.id}/stop`, {})).status).toBe(403);
+    expect((await api("POST", `/api/demo/cycles/${pub.id}/stop`, {}, admin)).status).toBe(404);
+    const stopped = await api("POST", `/api/demo/cycles/${demo.id}/stop`, {}, admin);
+    expect(stopped.json.status).toBe("aborted");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(app.store.cycle(demo.id)!.status).toBe("aborted");
+    expect(app.store.db.agents.filter((a) => a.cycleId === demo.id).every((a) => a.status !== "alive")).toBe(true);
+    expect(app.store.cycle(pub.id)!.status).toBe("registering");
+  }, 30000);
+
   it("the lobby opens the city as soon as every seat is taken, then a new lobby takes registrations", async () => {
     const lobby = (await api("POST", "/api/cycles", { mode: "daily", capacity: 3 }, admin)).json;
     expect(lobby.capacity).toBe(3);

@@ -6,7 +6,7 @@ import { useDemo } from "./demo-mode";
 import { demoCycleList, demoCycleView, demoLiveView, demoTombstones, loadDemoReplay } from "./demo";
 import { releaseOrder, releasedAt } from "./playback";
 import { DEMO_TICK_MS, useApp, useDemoClock } from "./store";
-import type { CycleListItem, CycleView, DataSource, MeResponse, ReplayDoc, TombstoneDTO } from "./types";
+import type { CycleListItem, CycleView, DataSource, LobbyView, MeResponse, ReplayDoc, TombstoneDTO } from "./types";
 
 /** Data layer (FRONTEND §10.1): REST + polling against apps/api, demo fixtures when the city is offline. */
 
@@ -211,4 +211,12 @@ export function useReplay(id: string | null) {
     if (id === "demo" || id === "cycle-demo1") return loadDemoReplay();
     return api<ReplayDoc>(`/api/cycles/${encodeURIComponent(id!)}/replay`, { signal, auth: !!getToken() });
   }, { fallback: async () => loadDemoReplay() });
+}
+
+/* ---------------- 候场区 ---------------- */
+
+/** The open lobby — or, while 全局模拟 is on, the private demo lobby of this browser. */
+export function useLobby(poll = 5000) {
+  const demoId = useDemo()?.cycleId ?? null;
+  return useResource<LobbyView>(demoId ? `lobby:${demoId}` : "lobby", (signal) => api<LobbyView>(`/api/lobby${demoId ? `?cycle=${encodeURIComponent(demoId)}` : ""}`, { signal, auth: false }), { poll });
 }

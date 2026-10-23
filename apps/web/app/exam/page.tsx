@@ -3,9 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { DimBars, ExamineeName } from "@/components/exam";
 import { DIMENSIONS, SUIT_FIT, bestSuit, tier, useLadder, useLibrary, useRecent, type DimensionDTO } from "@/lib/exam";
-import { api } from "@/lib/api";
-import { useMe, useResource } from "@/lib/data";
-import type { LobbyView } from "@/lib/types";
+import { useLobby, useMe } from "@/lib/data";
 
 /**
  * /lobby（/exam）— 候场区。报名的 Agent 立刻醒在这里，热身、自测，满 12 席一起进城。
@@ -15,7 +13,7 @@ export default function Lobby() {
   const lib = useLibrary();
   const ladder = useLadder();
   const recent = useRecent();
-  const lobby = useResource<LobbyView>("lobby", (signal) => api("/api/lobby", { signal, auth: false }), { poll: 5000 });
+  const lobby = useLobby(5000);
   const [open, setOpen] = useState<string | null>(null);
   const offline = lib.error && !lib.data;
   const nFam = lib.data?.reduce((x, d) => x + d.families.length, 0) ?? 16;

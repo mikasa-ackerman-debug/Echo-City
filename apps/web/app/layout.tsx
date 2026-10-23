@@ -1,7 +1,8 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { DemoBanner, Footer, Nav, Providers, StatusBar } from "@/components/chrome";
+import { Footer, Nav, Providers, StatusBar } from "@/components/chrome";
+import { SimBanner } from "@/components/sim-banner";
 
 export const metadata: Metadata = {
   title: { default: "残响城 · ANANKE 的试炼", template: "%s · 残响城" },
@@ -27,10 +28,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="frame">
           <Nav />
           <StatusBar />
-          <DemoBanner />
           <main id="main">{children}</main>
           <Footer />
         </div>
+        <SimBanner />
         <Providers />
       </body>
     </html>

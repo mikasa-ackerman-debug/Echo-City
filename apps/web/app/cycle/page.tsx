@@ -7,11 +7,10 @@ import { LiveBoard } from "@/components/live-board";
 import { WhisperOverlay } from "@/components/whisper";
 import { LadderBoard } from "@/components/ladder";
 import { SuitMark } from "@/components/ui/card";
-import { api } from "@/lib/api";
-import { cycleNo, useCurrentCycle, useCycles, useMe, useReplay, useResource } from "@/lib/data";
+import { cycleNo, useCurrentCycle, useCycles, useLobby, useMe, useReplay } from "@/lib/data";
 import { deriveLadderLive, type TableLive } from "@/lib/ladder-live";
 import { useLiveEvents } from "@/lib/live";
-import type { LadderRow, LobbyView } from "@/lib/types";
+import type { LadderRow } from "@/lib/types";
 
 const OUT_ZH: Record<string, string> = { pass: "过", win: "过", fail: "败", lose: "败", delete: "✝" };
 
@@ -24,7 +23,7 @@ export default function CyclePage() {
   const { cycle, source, none, demoEvents } = useCurrentCycle(10_000);
   const cycles = useCycles();
   const { me } = useMe();
-  const lobby = useResource<LobbyView>("lobby", (signal) => api("/api/lobby", { signal, auth: false }), { poll: 10_000 });
+  const lobby = useLobby(10_000);
   const running = cycle?.status === "running";
   const stream = useLiveEvents(running && source === "api" ? cycle!.id : null);
   const events = source === "demo" ? demoEvents : stream.events;

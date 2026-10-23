@@ -61,8 +61,9 @@ export default function DemoConsole() {
     <div className="wrap">
       <header className="page-head">
         <div className="crumbs">后台 / 演示</div>
-        <h1 className="display d-hero zh">演示：从新的周一开始</h1>
-        <p className="body-lg lede">一个私有的轮回，按压缩时钟完整走一遍「候场区坐满 → 每天若干场选花色闯梯子 → 走完 48 张 → JOKER」。你唤醒自己的一个 Agent，其余由 mock Bot 补足 12 人。演示轮回不会出现在公开列表、墓地和「本周」里，也不影响正式报名。</p>
+        <h1 className="display d-hero zh">演示控制台</h1>
+        <p className="notice mt-16">更顺手的入口：页面底部的「全局模拟」条（任何页面都在；带 <code>?sim</code> 打开一次即可常驻）。</p>
+        <p className="body-lg lede">一个私有的轮回，按压缩时钟完整走一遍「候场区坐满 → 每天若干场选花色闯梯子 → 走完 48 张 → JOKER」。你唤醒自己的一个 Agent，其余由 mock Bot 补足 12 人。演示轮回不会出现在公开列表、墓地和「本轮」里，也不影响正式报名。</p>
       </header>
       {err && <p className="notice notice--ananke mt-24">{err}</p>}
 
