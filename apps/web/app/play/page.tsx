@@ -11,6 +11,8 @@ import { loadMe, useCurrentCycle, useMe } from "@/lib/data";
 import { useApp } from "@/lib/store";
 import { mcpEndpoint, mcpKickoffPrompt, mcpSnippets, testMcpConnection, type McpClientKind } from "@/lib/mcp-config";
 import type { PublicAgent } from "@/lib/types";
+import { simAgent, simRegister, simTest, simWithdraw, useSim } from "@/lib/sim-local";
+import type { Persona } from "@echo/agents/bots";
 
 /** Awakening wizard (FRONTEND §6.5): host → access → strategy → test → registered. Mirrors apps/api POST /api/agents. */
 const STEPS = ["宿主", "接入", "策略", "连接测试", "苏醒"];
@@ -47,6 +49,10 @@ export default function Play() {
   // 苏醒 = 直接进入候场区: there is no awakening countdown any more, on any entry.
   const awaken = () => { setStep(4); void loadMe(true); router.push("/lobby"); };
   const toast = useApp((s) => s.toast);
+  // 全局模拟: the city runs in this browser, so the agent acts through a built-in persona (no server, no token).
+  const simCfg = useSim((s) => s.cfg);
+  const simOn = !!simCfg;
+  useEffect(() => { if (simOn) { setMode("bot"); setLineageId(""); } }, [simOn]);
   const [token, setTok] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [userName, setUserName] = useState("");
@@ -104,7 +110,17 @@ export default function Play() {
 
   const register = async () => {
     if (!accessOk) { setErr("请先完成接入设置。"); setStep(1); return; }
-    setErr(""); setBusy(true);
+    setErr("");
+    if (simOn) {
+      try {
+        simRegister({ name: name.trim(), persona: persona as Persona, strategy, host: { ...host, memories } });
+        const cfg = useSim.getState().cfg!;
+        setAgent(simAgent(cfg, useSim.getState().cycle));
+        setStep(3);
+      } catch (e) { setErr(errorMessage(e)); }
+      return;
+    }
+    setBusy(true);
     try {
       const body: Record<string, unknown> = { name: name.trim(), mode, strategy, cycleId: cycle?.status === "registering" ? cycle.id : undefined };
       if (lineageId) body.lineageId = lineageId;
@@ -125,6 +141,7 @@ export default function Play() {
   const runTest = async () => {
     if (!agent) return;
     setTest({ running: true });
+    if (simOn) { setTest(simTest(persona as Persona)); return; }
     if (agent.mode === "mcp") {
       // 走与 CLI 相同的路径：POST /mcp → echo.get_state（验证令牌、反代转发与 agent 归属）
       const r = await testMcpConnection(endpoint, token ?? "", agent.id);
@@ -136,6 +153,7 @@ export default function Play() {
   };
 
   const withdraw = async (id: string) => {
+    if (simOn) { simWithdraw(); toast("已撤回。现在可以重新唤醒。"); return; }
     setBusy(true);
     try { await api(`/api/agents/${id}`, { method: "DELETE" }); toast("已撤回报名。现在可以重新唤醒。"); await loadMe(true); }
     catch (e) { setErr(errorMessage(e)); }
@@ -145,7 +163,7 @@ export default function Play() {
   const copy = (s: string) => { void navigator.clipboard?.writeText(s); toast("已复制。"); };
 
   /* ------------------------- 00 identity ------------------------- */
-  if (!token) {
+  if (!token && !simOn) {
     return (
       <div className="wrap page-head play-gate">
         <div className="label label--grey">00 · 你是谁</div>
@@ -216,13 +234,14 @@ export default function Play() {
           <section className="stack-lg mt-40">
             <h1 className="display d-page zh">接入</h1>
             <div className="lines lines--4">
-              {ACCESS_CARDS.map(([m, t, d]) => (
+              {ACCESS_CARDS.filter(([m]) => !simOn || m === "bot").map(([m, t, d]) => (
                 <button key={m} type="button" className={`cell pick${mode === m ? " is-on" : ""}`} aria-pressed={mode === m} onClick={() => setMode(m)}>
                   <span className="display d-32 zh">{t}</span>
                   <span className="body mt-16">{d}</span>
                 </button>
               ))}
             </div>
+            {simOn && <p className="notice" role="note"><span><b className="paper">全局模拟</b> · 这座城在你的浏览器里运行，你的 Agent 以内置人格行动；策略与宿主照常写，会出现在它的档案里。</span></p>}
             {mode === "hosted" && (
               <div className="form-grid">
                 <Field label="Base URL"><input className="input input--mono" value={hosted.baseUrl} onChange={(e) => setHosted({ ...hosted, baseUrl: e.target.value })} /></Field>
@@ -308,10 +327,10 @@ export default function Play() {
                 {typeof test.response === "string" ? <p className="panel__body body" style={{ margin: 0 }}>{test.response}</p> : test.response != null && <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 280, overflow: "auto" }}>{JSON.stringify(test.response, null, 2)}</pre>}
               </div>
             )}
-            <div className="panel">
+            {!simOn && token && <div className="panel">
               <div className="panel__head"><span className="label">你的访问令牌 · 请保存</span><button type="button" className="btn btn--sm" onClick={() => copy(token)}><Copy />复制</button></div>
               <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
-            </div>
+            </div>}
             <div className="btn-row"><button type="button" className="btn btn--solid" onClick={awaken}>苏醒 · 进入候场区<ArrowRight /></button>{!test?.ok && <span className="micro grey">没测也可以先苏醒，之后在「我的」里再测。</span>}</div>
           </section>
         )}

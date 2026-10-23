@@ -1,5 +1,6 @@
 "use client";
 import type { CycleEvent } from "@echo/engine";
+import { SIM_ID, simLobby, simMe, simReplay, useSim } from "./sim-local";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HttpError, OfflineError, api, getToken } from "./api";
 import { useDemo } from "./demo-mode";
@@ -102,12 +103,16 @@ export function useCurrentCycle(poll = 10_000): CurrentCycle {
     }
   }, { poll, fallback: async () => null });
   const demo = useDemoBroadcast(offline);
+  const sim = useSim();
   const cycle = useMemo(() => {
+    if (sim.cfg) return sim.cycle;
     if (!offline) return r.data;
     if (!demo.replay) return null;
     const ended = demo.events.some((e) => e.type === "cycle_end");
     return ended ? demoCycleView(demo.replay) : demoLiveView(demo.replay, demo.events);
-  }, [offline, r.data, demo.replay, demo.events]);
+  }, [offline, r.data, demo.replay, demo.events, sim.cfg, sim.cycle]);
+  // 全局模拟 (browser-local city) wins over everything: its events flow through the same "demo" path as the offline broadcast.
+  if (sim.cfg) return { cycle, source: "demo", loading: false, error: null, none: false, demoEvents: sim.visible };
   return { cycle, source: offline ? "demo" : "api", loading: r.loading && !cycle, error: offline ? null : r.error, none, demoEvents: demo.events };
 }
 
@@ -126,15 +131,17 @@ export function loadMe(force = false): Promise<void> {
 }
 
 export function useMe() {
-  const me = useApp((s) => s.me);
+  const real = useApp((s) => s.me);
   const loaded = useApp((s) => s.meLoaded);
+  const sim = useSim();
+  const me = useMemo(() => (sim.cfg ? simMe(sim.cfg, sim.cycle) : real), [sim.cfg, sim.cycle, real]);
   useEffect(() => {
     loadMe();
     const on = () => loadMe(true);
     window.addEventListener("echo:auth", on);
     return () => window.removeEventListener("echo:auth", on);
   }, []);
-  return { me, loaded };
+  return { me, loaded: loaded || !!sim.cfg };
 }
 
 /* ---------------- server-clock countdown (FRONTEND §7.5) ---------------- */
@@ -209,6 +216,7 @@ export function useCycles() {
 export function useReplay(id: string | null) {
   return useResource<ReplayDoc>(id ? `replay:${id}` : null, async (signal) => {
     if (id === "demo" || id === "cycle-demo1") return loadDemoReplay();
+    if (id === SIM_ID) { const r = simReplay(); if (r) return r; throw new Error("这局全局模拟已经还原"); }
     return api<ReplayDoc>(`/api/cycles/${encodeURIComponent(id!)}/replay`, { signal, auth: !!getToken() });
   }, { fallback: async () => loadDemoReplay() });
 }
@@ -218,5 +226,8 @@ export function useReplay(id: string | null) {
 /** The open lobby — or, while 全局模拟 is on, the private demo lobby of this browser. */
 export function useLobby(poll = 5000) {
   const demoId = useDemo()?.cycleId ?? null;
-  return useResource<LobbyView>(demoId ? `lobby:${demoId}` : "lobby", (signal) => api<LobbyView>(`/api/lobby${demoId ? `?cycle=${encodeURIComponent(demoId)}` : ""}`, { signal, auth: false }), { poll });
+  const sim = useSim();
+  const r = useResource<LobbyView>(demoId ? `lobby:${demoId}` : "lobby", (signal) => api<LobbyView>(`/api/lobby${demoId ? `?cycle=${encodeURIComponent(demoId)}` : ""}`, { signal, auth: false }), { poll });
+  const local = useMemo(() => (sim.cfg ? simLobby(sim.cfg) : null), [sim.cfg]);
+  return local ? { ...r, data: local, error: null, loading: false } : r;
 }
