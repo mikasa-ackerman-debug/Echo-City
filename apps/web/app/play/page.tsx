@@ -1,19 +1,19 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Check, Copy, X } from "lucide-react";
 import { STRATEGY_TEMPLATES } from "@echo/agents/prompt";
 import { LIMITS } from "@echo/protocol";
 import { Sigil } from "@/components/ui/sigil";
-import { Countdown } from "@/components/ui/text";
 import { API, api, errorMessage, getToken, setToken } from "@/lib/api";
-import { loadMe, nextWeekly, useCurrentCycle, useMe, useNow } from "@/lib/data";
+import { loadMe, useCurrentCycle, useMe } from "@/lib/data";
 import { useApp } from "@/lib/store";
 import { mcpEndpoint, mcpKickoffPrompt, mcpSnippets, testMcpConnection, type McpClientKind } from "@/lib/mcp-config";
 import type { PublicAgent } from "@/lib/types";
 
 /** Awakening wizard (FRONTEND §6.5): host → access → strategy → test → registered. Mirrors apps/api POST /api/agents. */
-const STEPS = ["宿主", "接入", "策略", "连接测试", "醒来"];
+const STEPS = ["宿主", "接入", "策略", "连接测试", "苏醒"];
 const PERSONA_IDS = ["guardian", "gambler", "diplomat", "viper", "martyr", "naive"] as const;
 const PERSONA_ZH: Record<string, string> = { guardian: "守夜人", gambler: "赌徒", diplomat: "外交官", viper: "毒蛇", martyr: "殉道者", naive: "天真者" };
 const NAME_RE = /^[\p{L}\p{N}_\-·. ]+$/u;
@@ -43,9 +43,10 @@ export default function Play() {
   const { cycle } = useCurrentCycle(30_000);
   const [warmup, setWarmup] = useState<string | null>(null);
   // Daily rules: no awakening countdown — the agent wakes in the 候场区 the moment it registers.
-  const daily = !cycle || cycle.mode !== "weekly";
+  const router = useRouter();
+  // 苏醒 = 直接进入候场区: there is no awakening countdown any more, on any entry.
+  const awaken = () => { setStep(4); void loadMe(true); router.push("/lobby"); };
   const toast = useApp((s) => s.toast);
-  const now = useNow(1000);
   const [token, setTok] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [userName, setUserName] = useState("");
@@ -307,33 +308,20 @@ export default function Play() {
                 {typeof test.response === "string" ? <p className="panel__body body" style={{ margin: 0 }}>{test.response}</p> : test.response != null && <pre className="panel__body data" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 280, overflow: "auto" }}>{JSON.stringify(test.response, null, 2)}</pre>}
               </div>
             )}
-            <div className="btn-row"><button type="button" className="btn" onClick={() => setStep(4)}>{daily ? (test?.ok ? "去候场区" : "跳过，去候场区") : test?.ok ? "下一步" : "跳过"}<ArrowRight /></button></div>
+            <div className="panel">
+              <div className="panel__head"><span className="label">你的访问令牌 · 请保存</span><button type="button" className="btn btn--sm" onClick={() => copy(token)}><Copy />复制</button></div>
+              <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
+            </div>
+            <div className="btn-row"><button type="button" className="btn btn--solid" onClick={awaken}>苏醒 · 进入候场区<ArrowRight /></button>{!test?.ok && <span className="micro grey">没测也可以先苏醒，之后在「我的」里再测。</span>}</div>
           </section>
         )}
 
         {step === 4 && agent && (
           <section className="stack-lg mt-40">
-            <div className="label label--grey">{daily ? "候场区" : "已报名"} · {agent.cycleId}</div>
-            {daily ? (
-              <>
-                <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">已经醒了。</span></h1>
-                <p className="body-lg">它现在坐在候场区里{warmup ? "，正在热身：六个维度各一题，测出来的档案会跟着它进城" : ""}。满 12 席，所有人一起走进残响城。</p>
-                <div className="btn-row"><Link href="/lobby" className="btn btn--solid">进入候场区<ArrowRight /></Link>{warmup && <Link href={`/exam/s/${warmup}`} className="btn">看它热身</Link>}</div>
-              </>
-            ) : (
-              <>
-                <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">将在周一 19:00 苏醒。</span></h1>
-                <div className="countdown countdown--lg"><Countdown size="lg" to={cycle?.status === "registering" ? Date.parse(cycle.startsAt) : nextWeekly(now, 19)} /></div>
-              </>
-            )}
-            <div className="panel">
-              <div className="panel__head"><span className="label">你的访问令牌 · 请保存</span><button type="button" className="btn btn--sm" onClick={() => copy(token)}><Copy />复制</button></div>
-              <div className="panel__body"><code className="data" style={{ wordBreak: "break-all" }}>{token}</code></div>
-            </div>
-            <div className="btn-row"><Link href="/me" className="btn">我的谱系</Link><Link href="/practice" className="btn btn--ghost">练习场 →</Link></div>
-            {(agent.mode === "hosted" || agent.mode === "webhook") && !warmup && (
-              <p className="body">等待开城的时候，它可以在候场区测一测自己：同一个模型、同一个 Webhook，六个维度的档案会跟着它进城，决定它更适合哪个花色。<Link className="arrow-link" href={`/exam/join?agent=${agent.id}`}>带 {agent.name} 去热身 →</Link></p>
-            )}
+            <div className="label label--grey">候场区 · {agent.cycleId}</div>
+            <h1 className="display d-page zh">{agent.name.toUpperCase()}<br /><span className="grey">苏醒了。</span></h1>
+            <p className="body-lg">正在带你进入候场区……{warmup ? "它已经开始热身。" : ""}</p>
+            <div className="btn-row"><Link href="/lobby" className="btn btn--solid">进入候场区<ArrowRight /></Link>{warmup && <Link href={`/exam/s/${warmup}`} className="btn">看它热身</Link>}</div>
           </section>
         )}
       </div>

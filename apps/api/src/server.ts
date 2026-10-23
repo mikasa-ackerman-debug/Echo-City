@@ -153,9 +153,13 @@ export function createApp(opts: AppOptions) {
   route("POST", "/api/cycles", ({ body }) => publicData(manager.createCycle(body ?? {})), "admin");
   route("POST", "/api/cycles/:id/start", ({ params }) => publicData(manager.start(params.id)), "admin");
   // Admin demo backdoor: a private compressed week (own agent + mock bots), hidden from public lists.
-  route("POST", "/api/demo/cycles", ({ body }) => publicData(manager.createDemoCycle({ speed: Number(body?.speed), fillBots: Number(body?.fillBots) })), "admin");
-  route("POST", "/api/demo/cycles/:id/start", ({ params }) => publicData(manager.startDemo(params.id)), "admin");
-  route("POST", "/api/demo/cycles/:id/stop", ({ params }) => publicData(manager.stopDemo(params.id)), "admin");
+  // 全局模拟 is open to everyone (the admin token still works): a signed-in user may run one private city at a time.
+  route("POST", "/api/demo/cycles", ({ body, user, admin }) => {
+    if (!admin && !user) throw new ApiError(403, "全局模拟需要先有一个身份（POST /api/users）");
+    return publicData(manager.createDemoCycle({ speed: Number(body?.speed), fillBots: Number(body?.fillBots), owner: admin ? undefined : user!.id }));
+  });
+  route("POST", "/api/demo/cycles/:id/start", ({ params, user, admin }) => (manager.assertDemoControl(params.id, user, admin), publicData(manager.startDemo(params.id))));
+  route("POST", "/api/demo/cycles/:id/stop", ({ params, user, admin }) => (manager.assertDemoControl(params.id, user, admin), publicData(manager.stopDemo(params.id))));
   route("GET", "/api/cycles/:id/events", ({ params, query, user }) => {
     if (!store.cycle(params.id)) throw new ApiError(404, "轮回不存在");
     return publicData(manager.visibleEvents(params.id, user, parseCursor(query.get("since"))));

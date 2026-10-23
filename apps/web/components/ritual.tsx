@@ -65,7 +65,7 @@ export function DeletionRitual({ items, mine, onDone }: { items: DeletionItem[];
         {mine && last && (
           <div className="del__actions btn-row" style={{ justifyContent: "center" }}>
             <Link href="/me" className="btn btn--solid">写遗书</Link>
-            <Link href="/play" className="btn">唤醒下一代（下周一）</Link>
+            <Link href="/play" className="btn">唤醒下一代 · 直接进候场区</Link>
           </div>
         )}
       </div>

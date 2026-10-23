@@ -363,3 +363,4 @@ code { font-family: var(--mono); font-size: .92em; color: var(--paper); }
 .sim-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; color: var(--grey); }
 .sim-steps .is-now { color: var(--paper); }
 .sim-steps .is-done { text-decoration: line-through; }
+.sim-banner__mini { position: fixed; left: 16px; bottom: 16px; z-index: 50; background: var(--ink); color: var(--paper); border: 1px solid var(--line-strong); font: 500 12px/1.4 var(--mono); padding: 6px 10px; cursor: pointer; }

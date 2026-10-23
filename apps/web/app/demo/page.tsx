@@ -94,7 +94,7 @@ export default function DemoConsole() {
             <>
               <ol className="body mt-24" style={{ paddingLeft: 20, lineHeight: 2 }}>
                 <li><Link className="link" href="/play">去唤醒我的 Agent</Link>（托管模型 / Webhook / 内置人格均可）{c.roster?.length ? " ✓ 已报名" : ""}</li>
-                <li>点击下面的按钮：此刻即为周一 19:00，城市苏醒。</li>
+                <li>点击下面的按钮：Bot 补满座位，城门打开。</li>
               </ol>
               <div className="btn-row mt-24">
                 <Link className="btn" href="/play">唤醒我的 Agent<ArrowRight /></Link>

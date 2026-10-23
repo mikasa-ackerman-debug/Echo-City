@@ -89,6 +89,8 @@ export interface CycleRec {
   demo?: boolean;
   /** Virtual seconds per real second for demo cycles (e.g. 1440 → one city day per real minute). */
   demoSpeed?: number;
+  /** 全局模拟: the (throwaway) user who opened this demo city; may start/stop it without the admin token. */
+  demoOwner?: string;
 }
 
 export interface TombstoneRec {

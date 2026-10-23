@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Play, RotateCcw, X } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { loadMe, useMe, useResource } from "@/lib/data";
-import { enterDemo, exitDemo, getAdminToken, getDemo, setAdminToken, useDemo } from "@/lib/demo-mode";
+import { enterDemo, exitDemo, getAdminToken, getDemo, useDemo } from "@/lib/demo-mode";
 import type { CycleView } from "@/lib/types";
 
 /** City-day length on the compressed clock (a city day = 24 h / speed). */
@@ -23,39 +23,34 @@ const STATUS_ZH: Record<string, string> = { registering: "候场中", running: "
  * ① wake your own agent through the real /play flow → ② house bots fill the remaining seats and the city opens
  * → ③ the whole cycle runs on a compressed clock, every page (本轮 / 候场区 / 观战 / 我的) shows the simulation.
  * 还原: stop the simulated city and switch this browser back to the public city and the real identity.
- * Visible only to developers: an admin token is saved, a simulation is on, or the page was opened with ?sim.
+ * Visible to everyone (for demos). The × collapses it into a small corner button; no admin token is needed.
  */
 export function SimBanner() {
   const router = useRouter();
   const path = usePathname();
   const demo = useDemo();
   const { me } = useMe();
-  const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
-  const [admin, setAdmin] = useState("");
   const [speed, setSpeed] = useState(2880);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).has("sim")) localStorage.setItem(FLAG, "1");
-    setVisible(!!getAdminToken() || !!getDemo() || localStorage.getItem(FLAG) === "1");
-    setAdmin(getAdminToken());
-  }, [path, demo]);
+  // Collapsed state is remembered per browser; the banner itself is always there (everyone can demo).
+  const [mini, setMini] = useState(false);
+  useEffect(() => { setMini(localStorage.getItem(FLAG) === "mini" && !getDemo()); }, [path, demo]);
 
   const cyc = useResource<CycleView>(demo ? `sim:${demo.cycleId}` : null, (signal) => api<CycleView>(`/api/cycles/${encodeURIComponent(demo!.cycleId)}`, { signal }), { poll: 3000 });
   const c = cyc.data;
   const myIds = new Set(me?.agents.map((a) => a.id) ?? []);
   const mine = c?.roster.filter((a) => myIds.has(a.id)) ?? [];
-  const headers = () => ({ "x-admin-token": getAdminToken() });
+  // Admin token optional: without it the demo city belongs to the throwaway identity that opened it.
+  const headers = (): Record<string, string> => (getAdminToken() ? { "x-admin-token": getAdminToken() } : {});
 
   const begin = async () => {
-    if (!admin.trim()) { setErr("先填写管理员令牌（ECHO_ADMIN_TOKEN）。"); return; }
     setErr(""); setBusy(true);
     try {
-      setAdminToken(admin.trim());
-      const cy = await api<CycleView>("/api/demo/cycles", { body: { speed, fillBots: 12 }, auth: false, headers: headers() });
       const u = await api<{ token: string }>("/api/users", { body: { name: "模拟宿主" }, auth: false });
+      const cy = await api<CycleView>("/api/demo/cycles", { body: { speed, fillBots: 12 }, auth: false, headers: { ...headers(), authorization: `Bearer ${u.token}` } });
       enterDemo(cy.id, u.token, speed);
       void loadMe(true);
       setOpen(true);
@@ -68,7 +63,7 @@ export function SimBanner() {
     if (!demo) return;
     setErr(""); setBusy(true);
     try {
-      await api(`/api/demo/cycles/${encodeURIComponent(demo.cycleId)}/start`, { body: {}, auth: false, headers: headers() });
+      await api(`/api/demo/cycles/${encodeURIComponent(demo.cycleId)}/start`, { body: {}, headers: headers() });
       cyc.reload();
       router.push("/cycle");
     } catch (e) { setErr(errorMessage(e)); }
@@ -79,7 +74,7 @@ export function SimBanner() {
     const d = getDemo();
     setErr(""); setBusy(true);
     try {
-      if (d && getAdminToken()) await api(`/api/demo/cycles/${encodeURIComponent(d.cycleId)}/stop`, { body: {}, auth: false, headers: headers() }).catch(() => {});
+      if (d) await api(`/api/demo/cycles/${encodeURIComponent(d.cycleId)}/stop`, { body: {}, headers: headers() }).catch(() => {});
     } finally {
       exitDemo();
       void loadMe(true);
@@ -89,9 +84,8 @@ export function SimBanner() {
     }
   };
 
-  const hide = () => { localStorage.removeItem(FLAG); setVisible(!!getAdminToken() || !!getDemo()); setOpen(false); };
-
-  if (!visible) return null;
+  const hide = () => { localStorage.setItem(FLAG, "mini"); setMini(true); setOpen(false); };
+  if (mini) return <button type="button" className="sim-banner__mini" onClick={() => { localStorage.removeItem(FLAG); setMini(false); }}>全局模拟</button>;
   const live = c?.live;
   const step = !demo ? 0 : !c ? 1 : c.status === "registering" ? (mine.length ? 2 : 1) : 3;
 
@@ -109,7 +103,7 @@ export function SimBanner() {
             {live && <> · 第 {live.night} 天{live.slot ? ` · 第 ${live.slot}/${live.slotsPerDay} 场` : ""} · 存活 <span className="tnum">{live.alive}/{live.total}</span></>}
             {c?.status === "ended" && c.summary && <> · {c.summary.winner ? `${c.summary.winner.name} 推开了最后的门` : "无人生还"}</>}
           </span>
-        ) : <span className="micro grey">开发者用：创建一个 Agent 走完整个流程，Bot 补满，跑完整一局。公开环境不受影响。</span>}
+        ) : <span className="micro grey">演示用：创建一个 Agent 走完整个流程，Bot 补满，跑完整一局。只在你的浏览器里，公开环境不受影响。</span>}
         <span className="sim-banner__actions">
           {demo && step === 1 && <Link className="btn btn--sm btn--solid" href="/play">① 创建我的 Agent</Link>}
           {demo && step === 2 && <button type="button" className="btn btn--sm btn--solid" disabled={busy} onClick={fillAndStart}><Play />② 补齐 Bot 并开城</button>}
@@ -117,14 +111,13 @@ export function SimBanner() {
           {demo && c?.status === "ended" && <Link className="btn btn--sm" href={`/cycle/${encodeURIComponent(demo.cycleId)}/replay`}>回放</Link>}
           {demo ? <button type="button" className="btn btn--sm" disabled={busy} onClick={restore}><RotateCcw />还原</button>
             : <button type="button" className="btn btn--sm" onClick={() => setOpen((o) => !o)}>{open ? "收起" : "开始模拟"}</button>}
-          {!demo && <button type="button" className="btn btn--sm btn--ghost" aria-label="隐藏" onClick={hide}><X /></button>}
+          {!demo && <button type="button" className="btn btn--sm btn--ghost" aria-label="收起" onClick={hide}><X /></button>}
         </span>
       </div>
       {open && (
         <div className="sim-banner__panel">
           {!demo ? (
             <div className="row" style={{ gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-              <input className="input" style={{ width: 320 }} type="password" placeholder="管理员令牌（ECHO_ADMIN_TOKEN）" value={admin} onChange={(e) => setAdmin(e.target.value)} />
               <span className="btn-row">{SIM_SPEEDS.map((s) => <button key={s.v} type="button" className={`btn btn--sm${speed === s.v ? " btn--solid" : ""}`} onClick={() => setSpeed(s.v)} title={s.hint}>{s.label}</button>)}</span>
               <span className="micro grey">{SIM_SPEEDS.find((s) => s.v === speed)?.hint}</span>
               <button type="button" className="btn btn--sm btn--solid" disabled={busy} onClick={begin}><Play />{busy ? "准备中…" : "开始全局模拟"}</button>

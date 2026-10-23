@@ -16,7 +16,7 @@ services:
       ECHO_CORS_ORIGIN: ${ECHO_CORS_ORIGIN:?set ECHO_CORS_ORIGIN to the frontend origin}
       # 可选：API 的公网根地址（报名返回的 MCP 端点用）；留空则按反代 X-Forwarded-* / Host 推断
       ECHO_PUBLIC_URL: ${ECHO_API_PUBLIC_URL:-}
-      ECHO_MODE: ${ECHO_MODE:-weekly}
+      ECHO_MODE: ${ECHO_MODE:-daily}
       ECHO_AUTODEMO: ${ECHO_AUTODEMO:-1}
     ports:
       - "127.0.0.1:${ECHO_API_PORT:-8788}:8787"

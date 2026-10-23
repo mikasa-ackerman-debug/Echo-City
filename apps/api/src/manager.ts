@@ -198,7 +198,12 @@ export class CycleManager {
   /* ---------------- admin demo (backdoor) ---------------- */
 
   /** A private, compressed replay of a full week: Monday 19:00 → Sunday joker, mock bots fill the roster. */
-  createDemoCycle(input: { speed?: number; fillBots?: number } = {}): CycleRec {
+  createDemoCycle(input: { speed?: number; fillBots?: number; owner?: string } = {}): CycleRec {
+    if (input.owner) {
+      const active = this.store.db.cycles.filter((c) => c.demo && (c.status === "registering" || c.status === "running"));
+      if (active.some((c) => c.demoOwner === input.owner)) throw new ApiError(409, "你已经有一局全局模拟在进行，先还原它");
+      if (active.filter((c) => c.demoOwner).length >= 6) throw new ApiError(429, "同时进行的全局模拟太多了，稍后再试");
+    }
     const speed = Math.max(60, Math.min(1000000, Number.isFinite(input.speed) ? Math.floor(input.speed!) : 1440));
     const fill = Math.max(2, Math.min(96, Number.isFinite(input.fillBots) ? Math.floor(input.fillBots!) : 12));
     let id = `demo-${newToken().slice(0, 8)}`;
@@ -206,11 +211,18 @@ export class CycleManager {
     const rec: CycleRec = {
       id, seed: newToken(), status: "registering", mode: "daily", rules: "ladder",
       startsAt: this.now().toISOString(), createdAt: this.now().toISOString(),
-      fillBots: fill, trialLength: "standard", agentIds: [], demo: true, demoSpeed: speed,
+      fillBots: fill, trialLength: "standard", agentIds: [], demo: true, demoSpeed: speed, ...(input.owner ? { demoOwner: input.owner } : {}),
     };
     this.store.db.cycles.push(rec);
     this.store.save();
     return rec;
+  }
+
+  /** 全局模拟 is open to everyone: the admin, or the user who opened that demo city. */
+  assertDemoControl(cycleId: string, user: UserRec | undefined, admin: boolean) {
+    const c = this.store.cycle(cycleId);
+    if (!c?.demo) throw new ApiError(404, "演示轮回不存在");
+    if (!admin && (!user || c.demoOwner !== user.id)) throw new ApiError(403, "只有开启这局模拟的人可以操作它");
   }
 
   /** Start a demo cycle now: "now" becomes its Monday 19:00. */
@@ -235,6 +247,28 @@ export class CycleManager {
 
   isDemo(cycleId: string | undefined): boolean {
     return !!cycleId && !!this.store.cycle(cycleId)?.demo;
+  }
+
+  /**
+   * The weekly schedule is retired: a registering weekly cycle becomes a 候场区 (daily lobby),
+   * so its agents are seated right away instead of waiting for Monday 19:00.
+   */
+  migrateWeeklyLobbies(fillAfterMs?: number): string[] {
+    const moved: string[] = [];
+    for (const c of this.store.db.cycles.filter((x) => x.status === "registering" && x.mode === "weekly" && !x.demo)) {
+      c.mode = "daily";
+      c.rules = "ladder";
+      c.trialLength = "standard";
+      c.capacity = c.capacity ?? LOBBY_SEATS;
+      c.fillBots = Math.max(c.fillBots, c.capacity);
+      c.startsAt = this.now().toISOString();
+      if (fillAfterMs !== undefined) c.fillAfterMs = fillAfterMs;
+      if (c.fillAfterMs !== undefined && !c.fillAt && this.store.db.agents.some((a) => a.cycleId === c.id && a.ownerId !== "system"))
+        c.fillAt = new Date(this.now().getTime() + c.fillAfterMs).toISOString();
+      moved.push(c.id);
+    }
+    if (moved.length) this.store.save();
+    return moved;
   }
 
   currentCycle(): CycleRec | undefined {
@@ -455,7 +489,8 @@ export class CycleManager {
   }
 
   register(user: UserRec, input: RegisterInput): { agent: AgentRec; webhookSecret?: string } {
-    const c = input.cycleId ? this.store.cycle(input.cycleId) : [...this.store.db.cycles].reverse().find((x) => x.status === "registering" && !x.demo);
+    const open = [...this.store.db.cycles].reverse().filter((x) => x.status === "registering" && !x.demo);
+    const c = input.cycleId ? this.store.cycle(input.cycleId) : open.find((x) => x.mode === "daily") ?? open[0];
     if (!c) throw new ApiError(404, "当前没有开放报名的轮回");
     if (c.status !== "registering") throw new ApiError(409, "该轮回已停止报名");
     if (user.bannedCycle) {

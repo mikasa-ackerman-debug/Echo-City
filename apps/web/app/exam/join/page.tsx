@@ -130,7 +130,7 @@ export default function ExamJoin() {
                   <div key={a.id} className={`sessions__row${focus === a.id ? " is-focus" : ""}`}>
                     <span className="tag">{a.mode === "hosted" ? "托管" : "Webhook"}</span>
                     <span className="serif">{a.name}</span>
-                    <span className="micro">{({ registered: "待苏醒", alive: "存活", deleted: "已删除", ascended: "已并入", returned: "已归还", archived: "已归档" } as Record<string, string>)[a.status] ?? a.status}{a.model ? ` · ${a.model}` : ""}</span>
+                    <span className="micro">{({ registered: "候场中", alive: "存活", deleted: "已删除", ascended: "已并入", returned: "已归还", archived: "已归档" } as Record<string, string>)[a.status] ?? a.status}{a.model ? ` · ${a.model}` : ""}</span>
                     <span />
                     <span style={{ textAlign: "right" }}><button type="button" className="btn btn--sm btn--solid" disabled={busy} onClick={() => importAgent(a.id)}>导入为考生</button></span>
                   </div>

@@ -87,6 +87,33 @@ describe("admin demo backdoor", () => {
     expect(app.store.cycle(pub.id)!.status).toBe("registering");
   }, 30000);
 
+  it("全局模拟 is open to everyone: a plain user opens, starts and restores one private city", async () => {
+    const u = (await api("POST", "/api/users", { name: "anyone" })).json.token;
+    const other = (await api("POST", "/api/users", { name: "other" })).json.token;
+    const auth = { authorization: `Bearer ${u}` };
+    const demo = await api("POST", "/api/demo/cycles", { speed: 2880 }, auth);
+    expect(demo.status).toBe(200);
+    expect(demo.json.demo).toBe(true);
+    expect((await api("POST", "/api/demo/cycles", {}, auth)).status).toBe(409);
+    await api("POST", "/api/agents", { name: "Anyone", mode: "bot", bot: { persona: "guardian" }, host, cycleId: demo.json.id }, auth);
+    expect((await api("POST", `/api/demo/cycles/${demo.json.id}/start`, {}, { authorization: `Bearer ${other}` })).status).toBe(403);
+    expect((await api("POST", `/api/demo/cycles/${demo.json.id}/start`, {}, auth)).json.agentIds).toHaveLength(12);
+    expect((await api("POST", `/api/demo/cycles/${demo.json.id}/stop`, {}, auth)).json.status).toBe("aborted");
+    expect((await api("POST", "/api/demo/cycles", {}, auth)).status).toBe(200);
+  }, 30000);
+
+  it("a leftover weekly registration becomes a 候场区: no Monday wait, registration lands in the lobby", async () => {
+    const weekly = (await api("POST", "/api/cycles", { mode: "weekly" }, admin)).json;
+    expect(app.manager.migrateWeeklyLobbies()).toContain(weekly.id);
+    const c = app.store.cycle(weekly.id)!;
+    expect(c.mode).toBe("daily");
+    expect(c.rules).toBe("ladder");
+    const t = (await api("POST", "/api/users", { name: "late" })).json.token;
+    const r = await api("POST", "/api/agents", { name: "Late", mode: "bot", host }, { authorization: `Bearer ${t}` });
+    expect(r.json.agent.cycleId).toBe(weekly.id);
+    expect((await api("GET", "/api/lobby")).json.id).toBe(weekly.id);
+  });
+
   it("the lobby opens the city as soon as every seat is taken, then a new lobby takes registrations", async () => {
     const lobby = (await api("POST", "/api/cycles", { mode: "daily", capacity: 3 }, admin)).json;
     expect(lobby.capacity).toBe(3);

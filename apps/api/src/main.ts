@@ -22,7 +22,9 @@ import { nextMonday1900 } from "./schedule";
  */
 const env = process.env;
 const prod = env.NODE_ENV === "production";
-const mode = env.ECHO_MODE === "fast" ? "fast" : env.ECHO_MODE === "weekly" ? "weekly" : "daily";
+// The weekly schedule is retired: ECHO_MODE=weekly now runs the 候场区 (daily) too.
+const mode = env.ECHO_MODE === "fast" ? "fast" : "daily";
+if (env.ECHO_MODE === "weekly") console.warn("[scheduler] ECHO_MODE=weekly 已停用，按 daily（候场区坐满即开城）运行");
 const adminToken = env.ECHO_ADMIN_TOKEN ?? (prod ? "" : "dev-admin");
 const secretKey = env.ECHO_SECRET_KEY ?? (prod ? "" : "dev-secret-key");
 if (prod && (!adminToken || !secretKey)) {
@@ -43,10 +45,14 @@ const { server, manager, store, exam } = createApp({
 });
 
 manager.resumeAll();
+if (mode === "daily") {
+  const fillMs = Number(env.ECHO_LOBBY_FILL_MS ?? 6 * 3600000);
+  for (const id of manager.migrateWeeklyLobbies(fillMs >= 0 ? fillMs : undefined)) console.log(`[lobby] 旧的周报名 ${id} 已改为候场区`);
+}
 
-/* Scheduler: keep one registering cycle open; in weekly mode start it at Monday 19:00. */
+/* Scheduler: keep one 候场区 open; it opens the city when full (or house bots fill it after ECHO_LOBBY_FILL_MS). */
 function tick() {
-  const open = store.db.cycles.find((c) => c.status === "registering" && !c.demo);
+  const open = [...store.db.cycles].reverse().find((c) => c.status === "registering" && !c.demo && (mode !== "daily" || c.mode === "daily"));
   const running = store.db.cycles.find((c) => c.status === "running" && !c.demo);
   if (mode === "daily") {
     // 候场区 is always open: a new lobby opens the moment the previous one fills into a city.
@@ -62,22 +68,6 @@ function tick() {
       }
     }
     return;
-  }
-  if (!open && !running && mode === "weekly") {
-    const c = manager.createCycle({ mode: "weekly", startsAt: nextMonday1900().toISOString(), fillBots: Number(env.ECHO_FILL_BOTS ?? 12) });
-    console.log(`[scheduler] 开放报名：${c.id}，开始于 ${c.startsAt}`);
-  }
-  if (open && open.mode === "weekly" && !running) {
-    // Start a few seconds early: the runner itself waits for 19:00 before the first dawn.
-    if (new Date(open.startsAt).getTime() - Date.now() < 60000) {
-      try {
-        manager.start(open.id);
-        console.log(`[scheduler] 轮回开始：${open.id}`);
-      } catch (e) {
-        if (manager.skipFailedScheduledStart(open.id, e)) console.warn(`[scheduler] 跳过无效轮回 ${open.id}: ${(e as Error).message}`);
-        else console.warn(`[scheduler] 无法开始 ${open.id}: ${(e as Error).message}`);
-      }
-    }
   }
 }
 

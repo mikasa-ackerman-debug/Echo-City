@@ -108,7 +108,7 @@ export function StatusBar() {
     const a = my.agent;
     if (!a) return null;
     if (my.kind === "alive") return <><span>{a.name.toUpperCase()}</span><span className="grey">存活</span><Link href="/cycle/live">观战</Link></>;
-    if (my.kind === "registered") return ladder ? <><span>{a.name.toUpperCase()}</span><span className="grey">候场中</span><Link href="/lobby">候场区</Link></> : <><span>{a.name.toUpperCase()}</span><span className="grey">已报名 · 苏醒</span>{cycle && <Countdown to={Date.parse(cycle.startsAt)} />}</>;
+    if (my.kind === "registered") return <><span>{a.name.toUpperCase()}</span><span className="grey">候场中</span><Link href="/lobby">候场区</Link></>;
     if (my.kind === "just_deleted") return <><span>{a.name.toUpperCase()} ✝</span>{my.generation?.night && <span className="grey">第 {my.generation.night} 夜</span>}<Link href={my.cta.href}>写遗书</Link>{my.letterDeadline && <span className="grey">剩 <Countdown to={my.letterDeadline} /></span>}</>;
     if (my.kind === "deleted_waiting") return <><span>{a.name.toUpperCase()} {FATE_GLYPH[a.status] ?? "✝"}</span>{a.status === "archived" && <span className="grey">撑到了最后</span>}{ladder ? <Link href="/lobby">回到候场区</Link> : <><span className="grey">下周报名</span><Countdown to={nextWeekly(now, 19)} /></>}</>;
     if (my.kind === "ascended") return <><span className="ananke">★ 并入者</span><span>{a.name.toUpperCase()}</span></>;
@@ -119,14 +119,12 @@ export function StatusBar() {
   let segs: ReactNode[] = [];
   if (!cycle) {
     segs = none ? ["还没有任何轮回", <Link key="n" href="/lobby">候场区等人入座</Link>] : ["正在连接城市…"];
-  } else if (cycle.status === "registering" && ladder) {
+  } else if (cycle.status === "registering") {
     segs = [`CYCLE ${cycleNo(cycle.id)}`, "候场中", <span key="s">座位 <b className="paper">{cycle.roster.length}</b>/{cycle.capacity ?? 12}</span>, <Link key="l" href="/lobby">去候场区</Link>];
   } else if (live && cycle.live?.rules === "ladder") {
     const l = cycle.live!;
     const top = (l.board ?? []).reduce((m, r) => Math.max(m, r.total), 0);
     segs = [`CYCLE ${cycleNo(cycle.id)}`, `第 ${l.night} 天${l.slot ? ` · 第 ${l.slot}/${l.slotsPerDay} 场` : ""}`, PHASE_ZH[l.phase] ?? l.phase, <span key="a">存活 <b className="paper">{l.alive}</b>/{l.total}</span>, <span key="t">最远 <b className="paper">{top}</b>/48</span>];
-  } else if (cycle.status === "registering") {
-    segs = [`CYCLE ${cycleNo(cycle.id)}`, "报名中", `已报名 ${cycle.roster.length}`, <span key="c">苏醒 <Countdown to={Date.parse(cycle.startsAt)} /></span>];
   } else if (live) {
     const l = cycle.live!;
     segs = [`CYCLE ${cycleNo(cycle.id)}`, l.night ? `${WEEKDAY[l.night] ?? ""} · 第 ${l.night} 夜` : "苏醒", PHASE_ZH[l.phase] ?? l.phase, <span key="a">存活 <b className="paper">{l.alive}</b>/{l.total}</span>];
